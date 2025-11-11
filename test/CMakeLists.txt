@@ -1,4 +1,4 @@
 # Test modules
 add_subdirectory(detection)
 add_subdirectory(recognition)
-# add_subdirectory(pipeline)
+add_subdirectory(pipeline)

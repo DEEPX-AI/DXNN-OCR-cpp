@@ -35,7 +35,4 @@ echo "Build completed successfully!"
 echo "========================================="
 echo "Executables in: ${BUILD_DIR}/release/bin"
 echo "Libraries in: ${BUILD_DIR}/release/lib"
-echo ""
-echo "Run tests:"
-echo "  cd ${BUILD_DIR}/release/bin"
-echo "  ./test_sync_ocr -m ../../models/det_v5_640.dxnn"
+

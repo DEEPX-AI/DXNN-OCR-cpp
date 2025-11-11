@@ -3,6 +3,7 @@
 #include "common/logger.hpp"
 #include <opencv2/opencv.hpp>
 #include <algorithm>
+#include <clipper2/clipper.h>
 
 namespace ocr {
 
@@ -60,6 +61,31 @@ std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred,
         // 扩展检测框
         auto unclipped_box = unclip(box);
 
+        // Clipper2 may return a polygon with many points (e.g., 56 points for rounded corners)
+        // Convert to minimum bounding rectangle (4 points)
+        std::vector<cv::Point2f> final_box;
+        if (unclipped_box.size() > 4) {
+            // Convert Point2f to Point for minAreaRect
+            std::vector<cv::Point> unclipped_contour;
+            for (const auto& pt : unclipped_box) {
+                unclipped_contour.push_back(cv::Point(static_cast<int>(pt.x), static_cast<int>(pt.y)));
+            }
+            
+            // Get minimum bounding rectangle
+            cv::RotatedRect rect = cv::minAreaRect(unclipped_contour);
+            cv::Point2f vertices[4];
+            rect.points(vertices);
+            
+            for (int k = 0; k < 4; k++) {
+                final_box.push_back(vertices[k]);
+            }
+            
+            // Sort clockwise
+            final_box = Geometry::orderPointsClockwise(final_box);
+        } else {
+            final_box = unclipped_box;
+        }
+
         // **Coordinate mapping from model output space to original image space**
         // PPOCR preprocessing: Pad first to square, then resize
         // - Original image: src_h × src_w (e.g., 1800×1349)
@@ -76,21 +102,21 @@ std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred,
         
         // Debug first box
         static bool debug_first = true;
-        if (debug_first && unclipped_box.size() >= 4) {
+        if (debug_first && final_box.size() >= 4) {
             LOG_INFO("PPOCR mapping: pred %dx%d -> padded %dx%d, scale %.4f x %.4f",
                      pred.cols, pred.rows, resized_w, resized_h, scale_x, scale_y);
             LOG_INFO("  first point in pred: (%.1f, %.1f) -> padded/orig: (%.1f, %.1f)", 
-                     unclipped_box[0].x, unclipped_box[0].y,
-                     unclipped_box[0].x * scale_x, unclipped_box[0].y * scale_y);
+                     final_box[0].x, final_box[0].y,
+                     final_box[0].x * scale_x, final_box[0].y * scale_y);
             debug_first = false;
         }
 
         DeepXOCR::TextBox text_box;
-        size_t num_points = std::min(static_cast<size_t>(4), unclipped_box.size());
+        size_t num_points = std::min(static_cast<size_t>(4), final_box.size());
         for (size_t j = 0; j < num_points; j++) {
             // Map from model output to padded space (which is original image space + padding)
-            float x = unclipped_box[j].x * scale_x;
-            float y = unclipped_box[j].y * scale_y;
+            float x = final_box[j].x * scale_x;
+            float y = final_box[j].y * scale_y;
             
             // Clip to original image bounds
             text_box.points[j].x = std::clamp(x, 0.0f, static_cast<float>(src_w));
@@ -178,34 +204,50 @@ std::vector<cv::Point2f> DBPostProcessor::unclip(const std::vector<cv::Point2f>&
         return box;
     }
 
-    // 计算扩展距离
+    // 计算扩展距离（与Python pyclipper保持一致）
     float distance = area * unclip_ratio_ / length;
 
-    // 使用 ClipperLib 或简单的缩放方法
-    // 这里使用简单的中心扩展方法
-    cv::Point2f center(0, 0);
+    // 使用Clipper2进行多边形偏移
+    // 转换cv::Point2f到Clipper2的Path格式
+    Clipper2Lib::PathD path;
     for (const auto& pt : box) {
-        center.x += pt.x;
-        center.y += pt.y;
+        path.push_back(Clipper2Lib::PointD(pt.x, pt.y));
     }
-    center.x /= 4;
-    center.y /= 4;
-
-    std::vector<cv::Point2f> unclipped_box;
-    for (const auto& pt : box) {
-        cv::Point2f vec = pt - center;
-        float len = std::sqrt(vec.x * vec.x + vec.y * vec.y);
-        if (len > 0) {
-            vec.x = vec.x / len * (len + distance);
-            vec.y = vec.y / len * (len + distance);
+    
+    // 执行偏移操作（相当于Python的pyclipper.Execute）
+    Clipper2Lib::PathsD solution = Clipper2Lib::InflatePaths(
+        {path}, 
+        distance, 
+        Clipper2Lib::JoinType::Round,  // JT_ROUND
+        Clipper2Lib::EndType::Polygon   // ET_CLOSEDPOLYGON
+    );
+    
+    // Debug logging
+    static int debug_count = 0;
+    if (debug_count < 3) {
+        LOG_INFO("Unclip: area=%.2f, length=%.2f, distance=%.2f, solution paths=%zu", 
+                 area, length, distance, solution.size());
+        if (!solution.empty()) {
+            LOG_INFO("  First solution has %zu points", solution[0].size());
         }
-        unclipped_box.push_back(center + vec);
+        debug_count++;
     }
-
+    
+    // 转换回cv::Point2f
+    std::vector<cv::Point2f> unclipped_box;
+    if (!solution.empty() && !solution[0].empty()) {
+        for (const auto& pt : solution[0]) {
+            unclipped_box.push_back(cv::Point2f(static_cast<float>(pt.x), 
+                                                 static_cast<float>(pt.y)));
+        }
+    } else {
+        // 如果偏移失败，返回原始框
+        LOG_WARN("Clipper2 unclip failed, using original box");
+        unclipped_box = box;
+    }
+    
     return unclipped_box;
-}
-
-float DBPostProcessor::polygonArea(const std::vector<cv::Point2f>& box) {
+}float DBPostProcessor::polygonArea(const std::vector<cv::Point2f>& box) {
     if (box.size() < 3) {
         return 0.0f;
     }

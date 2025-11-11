@@ -1,0 +1,16 @@
+{
+    "avg_inference_ms": 866.667,
+    "chars_per_second": 14.999994230771449,
+    "filename": "image_5.png",
+    "fps": 1.1538457100593422,
+    "rec_scores": [
+        0.9953201413154602,
+        0.7182831168174744
+    ],
+    "rec_texts": [
+        "君缘2018",
+        "TEL"
+    ],
+    "runs": 1,
+    "total_chars": 13
+}

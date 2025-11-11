@@ -1,0 +1,6 @@
+[submodule "3rd-party/json"]
+	path = 3rd-party/json
+	url = https://github.com/nlohmann/json.git
+[submodule "3rd-party/clipper2"]
+	path = 3rd-party/clipper2
+	url = https://github.com/AngusJohnson/Clipper2.git

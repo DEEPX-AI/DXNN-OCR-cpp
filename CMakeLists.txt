@@ -32,20 +32,32 @@ endif()
 # Find OpenCV
 find_package(OpenCV REQUIRED)
 
+# Add 3rd-party libraries
+add_subdirectory(3rd-party/json)
+add_subdirectory(3rd-party/clipper2/CPP)
+
 # Global include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${CMAKE_SOURCE_DIR}/3rd-party/json/include)
+include_directories(${CMAKE_SOURCE_DIR}/3rd-party/clipper2/CPP/Clipper2Lib/include)
 
 # Add subdirectories
 add_subdirectory(src/common)
 add_subdirectory(src/preprocessing)
 add_subdirectory(src/detection)
 add_subdirectory(src/recognition)
+add_subdirectory(src/pipeline)
 # add_subdirectory(src/ocr_engine)
 
 # ========================================
 # Test Subdirectory
 # ========================================
 add_subdirectory(test)
+
+# ========================================
+# Benchmark Subdirectory
+# ========================================
+add_subdirectory(benchmark)
 
 # Build information
 message(STATUS "========================================")

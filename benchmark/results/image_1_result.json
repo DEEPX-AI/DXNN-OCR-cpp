@@ -1,0 +1,10 @@
+{
+    "avg_inference_ms": 968.709,
+    "chars_per_second": 0.0,
+    "filename": "image_1.png",
+    "fps": 1.032301754190371,
+    "rec_scores": [],
+    "rec_texts": [],
+    "runs": 1,
+    "total_chars": 0
+}

@@ -1,6 +1,7 @@
 #include "common/visualizer.h"
 #include "common/logger.hpp"
 #include <random>
+#include <fstream>
 #include <opencv2/freetype.hpp>
 
 namespace ocr {
@@ -291,9 +292,28 @@ void Visualizer::putTextUTF8(cv::Mat& img, const std::string& text, cv::Point or
 cv::Mat Visualizer::drawOCRResultsSideBySide(const cv::Mat& image,
                                             const std::vector<TextBox>& boxes,
                                             const std::string& font_path) {
-    // 获取字体路径（默认使用项目字体）
-    std::string font = font_path.empty() ? 
-                      "engine/fonts/NotoSansCJK-Regular.ttc" : font_path;
+    // 尝试多个可能的字体路径（支持从不同目录运行）
+    std::vector<std::string> font_candidates = {
+        font_path,  // 用户指定的路径
+        "../engine/fonts/NotoSansCJK-Regular.ttc",  // 从build_Release运行
+        "../../../engine/fonts/NotoSansCJK-Regular.ttc",  // 从build_Release/test/xxx运行
+        "../../engine/fonts/NotoSansCJK-Regular.ttc",  // 从build_Release/test运行
+    };
+    
+    std::string font;
+    for (const auto& candidate : font_candidates) {
+        if (candidate.empty()) continue;
+        std::ifstream file(candidate);
+        if (file.good()) {
+            font = candidate;
+            break;
+        }
+    }
+    
+    if (font.empty()) {
+        LOG_WARN("Font file not found, trying default path");
+        font = "../engine/fonts/NotoSansCJK-Regular.ttc";
+    }
     
     int h = image.rows;
     int w = image.cols;
