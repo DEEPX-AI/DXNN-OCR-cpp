@@ -1,0 +1,25 @@
+name: (dev-to-main)
+run-name: ${{github.triggering_actor}} - Rebase dev(${{github.event.inputs.target_commit}}) → main
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: 'Target commit to rebase dev to main'
+        required: true
+      push_force:
+        type: boolean
+        description: "Should commit rebased by force?"
+        default: false
+
+permissions: write-all
+
+jobs:
+  call_dev-to-main:
+    name: dev to main
+    uses: deepx/do_workflows-central/.github/workflows/dev-to-main.yml@main
+    with:
+      target_commit: ${{ github.event.inputs.target_commit }}
+      push_force: ${{ github.event.inputs.push_force }}
+    secrets:
+      token: ${{ secrets.GH_DCI_TOKEN }}

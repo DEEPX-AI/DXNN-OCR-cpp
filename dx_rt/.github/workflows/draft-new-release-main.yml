@@ -1,0 +1,86 @@
+name: draft-new-release
+run-name: "${{github.triggering_actor}} - Draft a new release (${{github.sha}})"
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  USER_EMAIL: dci@deepx.ai
+  USER_NAME: dx-ci
+  GH_TOKEN: ${{ secrets.GH_DCI_TOKEN }}
+
+permissions: write-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate-release:
+    runs-on: 
+      - self-hosted
+      - sdk
+    if: github.repository == 'deepx/dx_rt' && github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, 'ci-skip') && !contains(github.event.head_commit.message, 'bump-skip') && !contains(github.event.head_commit.message, 'hotfix')
+    steps:
+    - name: Clean
+      run: |
+          sudo rm -rf ${{ github.workspace }}
+          mkdir -p ${{ github.workspace }}
+
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get version
+      run: |
+        VERSION=$(grep 'current_version =' .bumpversion.cfg | cut -d ' ' -f 3)
+        echo "CURRENT_VERSION=$VERSION" >> $GITHUB_ENV
+
+    - name: Get latest release tags
+      run: |
+        RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GH_DCI_TOKEN }}" \
+          "https://gh.deepx.ai/api/v3/repos/${{ github.repository }}/releases")
+        
+        RELEASE_TAGS=$(echo "$RELEASES" | grep -o '"tag_name": "[^"]*"' | cut -d '"' -f 4)
+        
+        LATEST_TAG=$(echo "$RELEASE_TAGS" | head -n 1)
+        
+        if [[ "v$CURRENT_VERSION" == "$LATEST_TAG" ]]; then
+          # Get the second latest tag
+          RELEASE_TAG=$(echo "$RELEASE_TAGS" | head -n 2 | tail -n 1)
+        else
+          RELEASE_TAG=$LATEST_TAG
+        fi
+  
+        echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+        echo "The latest tag is $RELEASE_TAG"
+
+    - name: Set git config
+      run: |
+        git config --global user.email $USER_EMAIL
+        git config --global user.name $USER_NAME
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Build change log
+      id: build_change_log
+      uses: mikepenz/release-changelog-builder-action@v4
+      with:
+        baseUrl: "https://gh.deepx.ai/api/v3"
+        token: ${{ secrets.GH_DCI_TOKEN }}
+        fromTag: ${{ env.RELEASE_TAG }}
+        toTag: v${{ env.CURRENT_VERSION }}
+
+    - name: Create release
+      uses: ncipollo/release-action@v1
+      with:
+          tag: v${{ env.CURRENT_VERSION }}
+          body: ${{steps.build_change_log.outputs.changelog}}
+          generateReleaseNotes : true
+          allowUpdates: true
+          makeLatest: true

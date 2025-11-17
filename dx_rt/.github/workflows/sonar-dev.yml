@@ -1,0 +1,17 @@
+name: Sonar Build Analysis on dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+
+jobs:
+  sonar_analysis:
+    uses: deepx/do_workflows-central/.github/workflows/dx_rt-sonar-dev.yml@main
+    secrets:
+      token: ${{ secrets.GH_DCI_TOKEN }}
+      nx_user: ${{ secrets.NX_USER }}
+      nx_pw: ${{ secrets.NX_PW }}
+      sonar_host_url: ${{ secrets.SONAR_HOST_URL }}
+      sonar_token: ${{ secrets.SONAR_TOKEN }}

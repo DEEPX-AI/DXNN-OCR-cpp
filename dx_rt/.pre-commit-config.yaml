@@ -1,0 +1,9 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://gh.deepx.ai/deepx/do_precommit
+    rev: v0.0.3
+    hooks:
+      - id: conventional-commit-check
+        stages:
+          - commit-msg

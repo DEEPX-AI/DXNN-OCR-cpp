@@ -1,0 +1,29 @@
+name: (public-release)
+run-name: ${{github.triggering_actor}} - Public Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: "Target commit from main to release"
+        required: true
+      manual_release:
+        type: boolean
+        description: "Manual release"
+        required: false
+        default: true
+
+permissions: write-all
+
+jobs:
+  call_public_release:
+    name: Execute Public Release
+    uses: deepx/do_workflows-central/.github/workflows/public-release.yml@main
+    with:
+      target_commit: ${{ github.event.inputs.target_commit }}
+      manual_release: ${{ github.event.inputs.manual_release }}
+      internal_repo: deepx/dx_rt
+      public_repo: DEEPX-AI/dx_rt
+    secrets:
+      internal_token: ${{ secrets.GH_DCI_TOKEN }}
+      public_token: ${{ secrets.GC_DCI_TOKEN }}

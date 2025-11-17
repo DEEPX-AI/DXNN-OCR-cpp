@@ -1,0 +1,77 @@
+{
+    "model": [
+      "BiSeNetV2_1-BiSeNetV2-2",
+      "DeepInsightDMS_1-DeepInsightDMS-1",
+      "DeepInsightFaceLandmarkDetection_1-DeepInsightFaceLandmarkDetection-1",
+      "DeepLabV3MobileNet_2-DeepLabV3MobileNet-2",
+      "DeepLabV3PlusMobileNetV2_2-DeepLabV3PlusMobileNetV2-3",
+      "dlot",
+      "EfficientDetD0_1-EfficientDetD0-2",
+      "EfficientNetB0_8-EfficientNetB0-9",
+      "EfficientNetB0Mini_1-EfficientNetB0Mini-1",
+      "EfficientNetB1_2-EfficientNetB1-3",
+      "EfficientNetB4_2-EfficientNetB4-3",
+      "HyundaiDDRNet_1-HyundaiDDRNet-1",
+      "HyundaiFaceAlignment-HyundaiFaceAlignment-1",
+      "HyundaiFaceID_1-HyundaiFaceID-1",
+      "HyundaiPytorchHalfpixel_1-HyundaiPytorchHalfpixel-1",
+      "MnasNet_2-MnasNet-2",
+      "MobileNetV1_10-MobileNetV1-11",
+      "MobileNetV2_9-MobileNetV2-10",
+      "RegNetX400MF_1-RegNetX400MF-2",
+      "ResNet50_7-ResNet50-8",
+      "SCRFD500M-SCRFD500M-1",
+      "ShelfNet18_2-ShelfNet18-2",
+      "SSDMobileNet_1-SSDMV-1",
+      "SSDMobileNetV1Lite_1-SSDMV1Lite-1",
+      "SSDMobileNetV1Mini_1-SSDMV1Mini-1",
+      "SSDResNet34Mini_1-SSDResNet34Mini-1",
+      "VGG19BN_3-VGG19BN-4",
+      "WideResNet101_1-WideResNet101-1",
+      "YOLOV3_1-YOLOV3-2",
+      "YOLOV4_3-YOLOV4-4",
+      "YOLOV5_1-YOLOV5-1",
+      "YOLOV5Pose640_1-YOLOV5Pose-1",
+      "YOLOV5S_8-YOLOV5S-10",
+      "YOLOV5X_2-YOLOV5X-3",
+      "YOLOv7_512-YOLOV7-4",
+      "YOLOv7x-YOLOV7X-2",
+      "YoloV7-YOLOV7-2",
+      "YoloV8N-YOLOV8N-1",
+      "YoloV9S-YOLOv9-S-2",
+      "YOLOX-S_1-YOLOXS-2"
+    ],
+
+    "configuration": {
+      "dynamic-cpu-offloading": ["off", "on"]
+    },
+
+    "threadStyle": [
+      {
+        "type": "single-ie",
+        "count": 10
+      },
+      {
+        "type": "multi-ie",
+        "count": 3
+      }
+    ],
+
+    "ieOption": {
+      "ort": [false, true],
+      "bound": ["NPU_0/1", "NPU_ALL", "NPU_0", "NPU_1", "NPU_2", "NPU_1/2", "NPU_0/2"],
+      "device": ["0,1", "all", "0", "1"]
+    },
+
+    "inferenceFunction": ["batch", "sync", "async"],
+
+    "inoutOption": {
+      "inputStyle": ["single", "multi-map", "multi-vec", "multi-autosplit"],
+      "outputBuffer": ["user","internal"],
+      "asyncMethod": ["wait","callback"],
+      "callbackDelay": 3000,
+      "loop": 10,
+      "time": 0,
+      "bitmatch": true
+    }
+}
