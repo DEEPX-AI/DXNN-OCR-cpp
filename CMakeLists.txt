@@ -36,8 +36,16 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     add_compile_options(-fstrict-volatile-bitfields)
 endif()
 
-if(ENABLE_DEBUG_INFO)
-    add_compile_options(-g -rdynamic)
+# ========================================
+# Debug/Performance Profiling Configuration
+# ========================================
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+    message(STATUS "Debug mode: Enabling debug symbols and profiling support")
+    add_compile_options(-g3 -ggdb -rdynamic -fno-omit-frame-pointer)
+    add_compile_options(-O1)
+elseif(ENABLE_DEBUG_INFO)
+    message(STATUS "Debug info enabled for profiling")
+    add_compile_options(-g -rdynamic -fno-omit-frame-pointer)
 endif()
 
 # Find OpenCV

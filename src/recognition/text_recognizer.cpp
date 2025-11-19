@@ -72,7 +72,9 @@ std::pair<std::string, float> TextRecognizer::Recognize(const cv::Mat& textImage
               textImage.cols / (textImage.rows > 0 ? textImage.rows : 1), ratio);
     
     // 预处理
+    auto t1 = std::chrono::high_resolution_clock::now();
     cv::Mat preprocessed = Preprocess(textImage, ratio);
+    auto t2 = std::chrono::high_resolution_clock::now();
     if (preprocessed.empty()) {
         LOG_ERROR("Preprocessing failed");
         return {"", 0.0f};
@@ -90,6 +92,7 @@ std::pair<std::string, float> TextRecognizer::Recognize(const cv::Mat& textImage
     
     // 推理
     auto outputs = engine->Run(preprocessed.data);
+    auto t3 = std::chrono::high_resolution_clock::now();
     if (outputs.empty()) {
         LOG_ERROR("Inference failed: no output tensors");
         return {"", 0.0f};
@@ -97,6 +100,12 @@ std::pair<std::string, float> TextRecognizer::Recognize(const cv::Mat& textImage
     
     // 后处理 (CTC解码)
     auto result = Postprocess(outputs);
+    auto t4 = std::chrono::high_resolution_clock::now();
+    
+    // 累加计时
+    last_preprocess_time_ += std::chrono::duration<double, std::milli>(t2 - t1).count();
+    last_inference_time_ += std::chrono::duration<double, std::milli>(t3 - t2).count();
+    last_postprocess_time_ += std::chrono::duration<double, std::milli>(t4 - t3).count();
     
     // 置信度过滤
     if (result.second < config_.confThreshold) {

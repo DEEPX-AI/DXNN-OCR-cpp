@@ -1,4 +1,5 @@
 #include "detection/text_detector.h"
+#include "common/logger.hpp"
 #include "detection/db_postprocess.h"
 #include "preprocessing/image_ops.h"
 #include "common/visualizer.h"
@@ -98,11 +99,16 @@ std::vector<DeepXOCR::TextBox> TextDetector::detect(const cv::Mat& image) {
     int target_size = (engine == model640_.get()) ? 640 : 960;
 
     // === Stage 1: Preprocessing ===
+    auto t1 = std::chrono::high_resolution_clock::now();
     int resized_h, resized_w;
     cv::Mat preprocessed = preprocess(image, target_size, resized_h, resized_w);
+    auto t2 = std::chrono::high_resolution_clock::now();
+    double preprocess_time = std::chrono::duration<double, std::milli>(t2 - t1).count();
 
     // === Stage 2: Model Inference ===
     cv::Mat pred = runInference(engine, preprocessed);
+    auto t3 = std::chrono::high_resolution_clock::now();
+    double inference_time = std::chrono::duration<double, std::milli>(t3 - t2).count();
     
     if (pred.empty()) {
         LOG_ERROR("Inference returned empty result");
@@ -111,7 +117,16 @@ std::vector<DeepXOCR::TextBox> TextDetector::detect(const cv::Mat& image) {
 
     // === Stage 3: Postprocessing ===
     auto boxes = postprocessor_->process(pred, orig_h, orig_w, resized_h, resized_w);
-    LOG_INFO("Detected %zu text boxes", boxes.size());
+    auto t4 = std::chrono::high_resolution_clock::now();
+    double postprocess_time = std::chrono::duration<double, std::milli>(t4 - t3).count();
+    
+    // Save timing details
+    last_preprocess_time_ = preprocess_time;
+    last_inference_time_ = inference_time;
+    last_postprocess_time_ = postprocess_time;
+    
+    LOG_INFO("Detection: %zu boxes | Preprocess: %.2fms | Inference: %.2fms | Postprocess: %.2fms", 
+             boxes.size(), preprocess_time, inference_time, postprocess_time);
     
     // Save final detection result if enabled
     if (config_.saveIntermediates && !boxes.empty()) {
@@ -194,29 +209,24 @@ cv::Mat TextDetector::preprocess(const cv::Mat& image, int target_size,
     return final_image;
 }
 
-cv::Mat TextDetector::runInference(dxrt::InferenceEngine* engine, const cv::Mat& input) {
-    // DXRT expects contiguous uint8 data in HWC format
-    int h = input.rows;
-    int w = input.cols;
-    int c = input.channels();
-    
-    // Check input size
-    size_t expected_size = engine->GetInputSize();
-    size_t actual_size = h * w * c;
-    
-    LOG_DEBUG("Input: %dx%dx%d (HWC, uint8), actual size: %zu bytes, expected: %zu bytes", 
-              h, w, c, actual_size, expected_size);
-    
-    if (actual_size != expected_size) {
-        LOG_ERROR("Input size mismatch! Expected %zu but got %zu", expected_size, actual_size);
-        return cv::Mat();
+cv::Mat TextDetector::runInference(dxrt::InferenceEngine* engine, const cv::Mat& input) {    
+    // Ensure contiguous memory: avoid cloning when not necessary
+    const uint8_t* input_ptr = nullptr;
+    cv::Mat contiguous;
+    if (input.isContinuous()) {
+        input_ptr = input.ptr<uint8_t>();
+    } else {
+        // only clone when input is not contiguous
+        contiguous = input.clone();
+        input_ptr = contiguous.ptr<uint8_t>();
     }
-    
-    // Ensure contiguous memory
-    cv::Mat contiguous = input.clone();
-    
-    // Run inference with uint8 HWC data
-    auto outputs = engine->Run(contiguous.data);
+
+    // Run inference with uint8 HWC data and measure time
+    auto t_start = std::chrono::high_resolution_clock::now();
+    auto outputs = engine->Run(reinterpret_cast<void*>(const_cast<uint8_t*>(input_ptr)));
+    auto t_end = std::chrono::high_resolution_clock::now();
+    double run_time = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+    LOG_INFO("Engine Run time: %.2fms", run_time);
 
     if (outputs.empty()) {
         LOG_ERROR("Inference failed: no output tensors");
@@ -226,12 +236,6 @@ cv::Mat TextDetector::runInference(dxrt::InferenceEngine* engine, const cv::Mat&
     // Get output tensor
     auto output_tensor = outputs[0];
     auto shape = output_tensor->shape();
-    
-    LOG_DEBUG("Output shape: [%zu, %zu, %zu, %zu]", 
-              shape.size() > 0 ? static_cast<size_t>(shape[0]) : 0,
-              shape.size() > 1 ? static_cast<size_t>(shape[1]) : 0,
-              shape.size() > 2 ? static_cast<size_t>(shape[2]) : 0,
-              shape.size() > 3 ? static_cast<size_t>(shape[3]) : 0);
     
     // Shape should be [1, 1, H, W] for detection
     if (shape.size() != 4) {
@@ -245,33 +249,11 @@ cv::Mat TextDetector::runInference(dxrt::InferenceEngine* engine, const cv::Mat&
     // Convert output to cv::Mat
     cv::Mat pred(out_h, out_w, CV_32FC1);
     const float* output_data = reinterpret_cast<const float*>(output_tensor->data());
-    
-    for (int i = 0; i < out_h; i++) {
-        for (int j = 0; j < out_w; j++) {
-            float val = output_data[i * out_w + j];
-            // DBNet output is already probability (no sigmoid needed)
-            pred.at<float>(i, j) = val;
-        }
-    }
-    
-    // Check output data statistics (debug only)
-    LOG_DEBUG_EXEC(([&]{
-        float min_val = FLT_MAX;
-        float max_val = -FLT_MAX;
-        float sum = 0.0f;
-        int total_pixels = out_h * out_w;
-        
-        for (int i = 0; i < out_h; i++) {
-            for (int j = 0; j < out_w; j++) {
-                float val = pred.at<float>(i, j);
-                min_val = std::min(min_val, val);
-                max_val = std::max(max_val, val);
-                sum += val;
-            }
-        }
-        
-        LOG_DEBUG("Output statistics: min=%.4f max=%.4f mean=%.4f", min_val, max_val, sum / total_pixels);
-    }));
+
+    // Fast copy: memcpy entire buffer (pred is continuous by construction)
+    size_t total = static_cast<size_t>(out_h) * static_cast<size_t>(out_w);
+    std::memcpy(pred.data, reinterpret_cast<const void*>(output_data), total * sizeof(float));
+    LOG_DEBUG("Copied %zu floats into cv::Mat via memcpy", total);
 
     return pred;
 }

@@ -66,11 +66,23 @@ public:
         return (label == "180" && confidence > config_.threshold);
     }
     
+    // Get last batch classification timing details
+    void getLastTimings(double& preprocess, double& inference, double& postprocess) const {
+        preprocess = last_preprocess_time_;
+        inference = last_inference_time_;
+        postprocess = last_postprocess_time_;
+    }
+    
 private:
     ClassifierConfig config_;
     std::unique_ptr<dxrt::InferenceEngine> engine_;
     std::vector<std::string> labels_ = {"0", "180"};
     bool initialized_ = false;
+    
+    // Timing details of last batch classification
+    double last_preprocess_time_ = 0.0;
+    double last_inference_time_ = 0.0;
+    double last_postprocess_time_ = 0.0;
     
     // Preprocessing
     cv::Mat Preprocess(const cv::Mat& image);

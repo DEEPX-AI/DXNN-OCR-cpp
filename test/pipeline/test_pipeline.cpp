@@ -38,26 +38,29 @@ std::vector<std::string> getImageFiles(const std::string& dirPath) {
 /**
  * @brief 打印OCR结果
  */
-void printOCRResults(const std::string& imageName, 
-                    const std::vector<ocr::PipelineOCRResult>& results,
+void printOCRResults([[maybe_unused]] const std::string& imageName, 
+                    [[maybe_unused]] const std::vector<ocr::PipelineOCRResult>& results,
                     const ocr::OCRPipelineStats& stats) {
-    LOG_INFO("\n========== Image: %s ==========", imageName.c_str());
     stats.Show();
     
-    if (!results.empty()) {
-        LOG_INFO("\nOCR Results (sorted from top-left to bottom-right):");
-        LOG_INFO("%-4s | %-50s | %s", "No.", "Text", "Conf");
-        LOG_INFO("%s", std::string(70, '-').c_str());
+    LOG_DEBUG_EXEC([&]{
+        LOG_DEBUG("\n========== Image: %s ==========", imageName.c_str());
         
-        for (const auto& result : results) {
-            LOG_INFO("%-4d | %-50s | %.3f", 
-                    result.index + 1, 
-                    result.text.c_str(), 
-                    result.confidence);
+        if (!results.empty()) {
+            LOG_DEBUG("\nOCR Results (sorted from top-left to bottom-right):");
+            LOG_DEBUG("%-4s | %-50s | %s", "No.", "Text", "Conf");
+            LOG_DEBUG("%s", std::string(70, '-').c_str());
+            
+            for (const auto& result : results) {
+                LOG_DEBUG("%-4d | %-50s | %.3f", 
+                        result.index + 1, 
+                        result.text.c_str(), 
+                        result.confidence);
+            }
         }
-    }
-    
-    LOG_INFO(" ");
+        
+        LOG_DEBUG(" ");
+    });
 }
 
 int main(int argc, char** argv) {
@@ -81,58 +84,75 @@ int main(int argc, char** argv) {
     // 创建输出目录
     fs::create_directories(outputDir);
     
-    LOG_INFO("========== OCR Pipeline Test ==========");
+    LOG_INFO("========== PaddleOCR Pipeline Test ==========");
     LOG_INFO("Test Images Directory: %s", testImagesDir.c_str());
     LOG_INFO("Model Directory: %s", modelDir.c_str());
     LOG_INFO("Output Directory: %s", outputDir.c_str());
-    LOG_INFO("=======================================\n");
+    LOG_INFO("=============================================\n");
     
-    // 配置Pipeline
+    // ============================================================
+    // 配置 PaddleOCR Pipeline
+    // 基于 PaddleOCR v5 架构的完整 OCR Pipeline
+    // 包含: Detection -> Classification -> Recognition
+    // ============================================================
     ocr::OCRPipelineConfig config;
     
-    // Detection配置
+    // ============================================================
+    // PaddleOCR Detection 配置 (PP-OCRv5 检测模型)
+    // 使用多尺度检测模型提高不同分辨率文本的检测效果
+    // ============================================================
     config.detectorConfig.model640Path = modelDir + "/best/det_v5_640.dxnn";
     config.detectorConfig.model960Path = modelDir + "/best/det_v5_960.dxnn";
-    config.detectorConfig.thresh = 0.3f;
-    config.detectorConfig.boxThresh = 0.6f;
-    config.detectorConfig.maxCandidates = 1500;
-    config.detectorConfig.unclipRatio = 1.5f;
+    config.detectorConfig.thresh = 0.3f;                // 二值化阈值
+    config.detectorConfig.boxThresh = 0.6f;             // 文本框置信度阈值
+    config.detectorConfig.maxCandidates = 1500;         // 最大候选框数量
+    config.detectorConfig.unclipRatio = 1.5f;           // 文本框扩展比例
     
-    // Recognition配置
+    // ============================================================
+    // PaddleOCR Recognition 配置 (PP-OCRv5 识别模型)
+    // 使用多个宽高比模型自适应不同长度的文本行
+    // ============================================================
     config.recognizerConfig.modelPaths = {
-        {3, modelDir + "/best/rec_v5_ratio_3.dxnn"},
+        {3, modelDir + "/best/rec_v5_ratio_3.dxnn"},    // 短文本
         {5, modelDir + "/best/rec_v5_ratio_5.dxnn"},
         {10, modelDir + "/best/rec_v5_ratio_10.dxnn"},
         {15, modelDir + "/best/rec_v5_ratio_15.dxnn"},
         {25, modelDir + "/best/rec_v5_ratio_25.dxnn"},
-        {35, modelDir + "/best/rec_v5_ratio_35.dxnn"}
+        {35, modelDir + "/best/rec_v5_ratio_35.dxnn"}   // 长文本
     };
-    config.recognizerConfig.dictPath = modelDir + "/ppocrv5_dict.txt";
-    config.recognizerConfig.confThreshold = 0.3f;
-    config.recognizerConfig.inputHeight = 48;
+    config.recognizerConfig.dictPath = modelDir + "/ppocrv5_dict.txt";  // PaddleOCR v5 字典
+    config.recognizerConfig.confThreshold = 0.3f;       // 识别置信度阈值
+    config.recognizerConfig.inputHeight = 48;           // 输入高度 (PaddleOCR 标准)
     
-    // Classification 配置
+    // ============================================================
+    // PaddleOCR Classification 配置 (文本方向分类)
+    // 用于检测和矫正 180° 旋转的文本行
+    // ============================================================
     config.classifierConfig.modelPath = modelDir + "/best/textline_ori.dxnn";
-    config.classifierConfig.threshold = 0.9;
-    config.classifierConfig.inputWidth = 160;
+    config.classifierConfig.threshold = 0.9;            // 方向分类置信度阈值
+    config.classifierConfig.inputWidth = 160;           // PaddleOCR 标准输入尺寸
     config.classifierConfig.inputHeight = 80;
-    config.useClassification = true;
+    config.useClassification = true;                    // 启用方向分类
     
-    // Document Preprocessing 配置（统一管理）
+    // ============================================================
+    // Document Preprocessing 配置 (文档预处理 Pipeline)
+    // 包含文档方向检测和文档展平 (UVDoc)
+    // ============================================================
     config.useDocPreprocessing = true;
+    // 文档方向检测 (0°/90°/180°/270°)
     config.docPreprocessingConfig.useOrientation = true;
     config.docPreprocessingConfig.orientationConfig.modelPath = modelDir + "/best/doc_ori_fixed.dxnn";
-    config.docPreprocessingConfig.orientationConfig.confidenceThreshold = 0.9f;  // 与Python保持一致
+    config.docPreprocessingConfig.orientationConfig.confidenceThreshold = 0.9f;  // 与 PaddleOCR 保持一致
     
+    // 文档展平 (UVDoc) - 矫正弯曲、褶皱的文档
     config.docPreprocessingConfig.useUnwarping = true;
     config.docPreprocessingConfig.uvdocConfig.modelPath = modelDir + "/best/UVDoc_pruned_p3.dxnn";
-    config.docPreprocessingConfig.uvdocConfig.inputWidth = 488;   // Python size=[712,488] -> width=488
-    config.docPreprocessingConfig.uvdocConfig.inputHeight = 712;  // Python size=[712,488] -> height=712
+    config.docPreprocessingConfig.uvdocConfig.inputWidth = 488;   // 符合 PaddleOCR size=[712,488] -> width=488
+    config.docPreprocessingConfig.uvdocConfig.inputHeight = 712;  // 符合 PaddleOCR size=[712,488] -> height=712
     config.docPreprocessingConfig.uvdocConfig.alignCorners = true;
     
-    // Pipeline配置
-    config.enableVisualization = true;
-    config.sortResults = true;
+    config.enableVisualization = true;                  // 生成可视化结果
+    config.sortResults = true;                          // 按阅读顺序排序 (从上到下，从左到右)
     
     // 显示配置
     config.Show();

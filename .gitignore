@@ -161,4 +161,8 @@ cython_debug/
 git_token
 
 build_Release/
+build_Debug/
 build/
+
+# VS Code
+.vscode/

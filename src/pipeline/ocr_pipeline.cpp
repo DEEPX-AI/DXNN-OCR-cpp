@@ -75,14 +75,45 @@ cv::Point2f PipelineOCRResult::getCenter() const {
 
 void OCRPipelineStats::Show() const {
     LOG_INFO("========== OCR Pipeline Statistics ==========");
-    LOG_INFO("Detection Time: %.2f ms", detectionTime);
-    LOG_INFO("Classification Time: %.2f ms", classificationTime);
-    LOG_INFO("Recognition Time: %.2f ms", recognitionTime);
+    
+    if (docPreprocessingTime > 0) {
+        LOG_INFO("Doc Preprocessing: %.2f ms (%.1f%%)", docPreprocessingTime,
+                 totalTime > 0 ? docPreprocessingTime/totalTime*100 : 0);
+    }
+
+    LOG_INFO("Detection:");
+    LOG_INFO("  Preprocess:  %.2f ms (%.1f%%)", detectionPreprocessTime, 
+             totalTime > 0 ? detectionPreprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Inference:   %.2f ms (%.1f%%)", detectionInferenceTime,
+             totalTime > 0 ? detectionInferenceTime/totalTime*100 : 0);
+    LOG_INFO("  Postprocess: %.2f ms (%.1f%%)", detectionPostprocessTime,
+             totalTime > 0 ? detectionPostprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Total:       %.2f ms (%.1f%%)", detectionTime,
+             totalTime > 0 ? detectionTime/totalTime*100 : 0);
+    
+    LOG_INFO("Classification:");
+    LOG_INFO("  Preprocess:  %.2f ms (%.1f%%)", classificationPreprocessTime,
+             totalTime > 0 ? classificationPreprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Inference:   %.2f ms (%.1f%%)", classificationInferenceTime,
+             totalTime > 0 ? classificationInferenceTime/totalTime*100 : 0);
+    LOG_INFO("  Postprocess: %.2f ms (%.1f%%)", classificationPostprocessTime,
+             totalTime > 0 ? classificationPostprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Total:       %.2f ms (%.1f%%)", classificationTime,
+             totalTime > 0 ? classificationTime/totalTime*100 : 0);
+    
+    LOG_INFO("Recognition:");
+    LOG_INFO("  Preprocess:  %.2f ms (%.1f%%)", recognitionPreprocessTime,
+             totalTime > 0 ? recognitionPreprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Inference:   %.2f ms (%.1f%%)", recognitionInferenceTime,
+             totalTime > 0 ? recognitionInferenceTime/totalTime*100 : 0);
+    LOG_INFO("  Postprocess: %.2f ms (%.1f%%)", recognitionPostprocessTime,
+             totalTime > 0 ? recognitionPostprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Total:       %.2f ms (%.1f%%)", recognitionTime,
+             totalTime > 0 ? recognitionTime/totalTime*100 : 0);
+    
     LOG_INFO("Total Time: %.2f ms", totalTime);
-    LOG_INFO("Detected Boxes: %d", detectedBoxes);
-    LOG_INFO("Rotated Boxes: %d", rotatedBoxes);
-    LOG_INFO("Recognized Boxes: %d", recognizedBoxes);
-    LOG_INFO("Recognition Rate: %.1f%%", recognitionRate);
+    LOG_INFO("Detected: %d | Rotated: %d | Recognized: %d (%.1f%%)", 
+             detectedBoxes, rotatedBoxes, recognizedBoxes, recognitionRate);
     LOG_INFO("============================================");
 }
 
@@ -169,37 +200,45 @@ bool OCRPipeline::process(const cv::Mat& image,
     
     // Step 0-1: Document Preprocessing Pipeline (Orientation + UVDoc)
     cv::Mat processedImage = image;
+    double doc_preproc_time = 0.0;
+    
     if (config_.useDocPreprocessing && docPreprocessing_) {
         auto preprocResult = docPreprocessing_->Process(image);
         
         if (preprocResult.success && !preprocResult.processedImage.empty()) {
             processedImage = preprocResult.processedImage;
+            doc_preproc_time = preprocResult.totalTime;
             LOG_DEBUG("Doc preprocess: orientation=%s, unwarp=%s, time=%.2fms",
                       preprocResult.orientationApplied ? "yes" : "no",
                       preprocResult.unwarpingApplied ? "yes" : "no",
                       preprocResult.totalTime);
         } else {
             LOG_WARN("Document preprocessing failed");
-            processedImage = image.clone();
+            processedImage = image;
         }
     } else {
-        processedImage = image.clone();
+        processedImage = image;
     }
     
     // Cache processed image for visualization
-    lastProcessedImage_ = processedImage.clone();
+    lastProcessedImage_ = processedImage;
     
     // Step 2: Detection
-    auto start_det = std::chrono::high_resolution_clock::now();
     std::vector<DeepXOCR::TextBox> boxes = detector_->detect(processedImage);
-    auto end_det = std::chrono::high_resolution_clock::now();
-    double det_time = std::chrono::duration<double, std::milli>(end_det - start_det).count();
+    
+    // Get detailed detection timings from detector
+    double det_preprocess = 0.0, det_inference = 0.0, det_postprocess = 0.0;
+    detector_->getLastTimings(det_preprocess, det_inference, det_postprocess);
+    double det_time = det_preprocess + det_inference + det_postprocess;
     
     LOG_INFO("Detection: %zu boxes, %.2fms", boxes.size(), det_time);
     
     if (boxes.empty()) {
         LOG_WARN("No text detected");
         if (stats) {
+            stats->detectionPreprocessTime = det_preprocess;
+            stats->detectionInferenceTime = det_inference;
+            stats->detectionPostprocessTime = det_postprocess;
             stats->detectionTime = det_time;
             stats->classificationTime = 0.0;
             stats->recognitionTime = 0.0;
@@ -213,6 +252,8 @@ bool OCRPipeline::process(const cv::Mat& image,
     }
     
     // Sort boxes (top to bottom, left to right) - matching Python's sorted_boxes
+    auto start_sort = std::chrono::high_resolution_clock::now();
+
     // Python: sorted(dt_boxes, key=lambda x: (x[0][1], x[0][0]))
     // Sort by first point's (y, x)
     std::sort(boxes.begin(), boxes.end(), [](const DeepXOCR::TextBox& a, const DeepXOCR::TextBox& b) {
@@ -235,9 +276,12 @@ bool OCRPipeline::process(const cv::Mat& image,
         }
     }
     
-    LOG_DEBUG("Boxes sorted by (y, x)");
+    auto end_sort = std::chrono::high_resolution_clock::now();
+    double sort_time = std::chrono::duration<double, std::milli>(end_sort - start_sort).count();
+    LOG_INFO("Boxes sorted by (y, x), time: %.2fms", sort_time);
     
     // Step 3: Crop text regions
+    auto start_crop = std::chrono::high_resolution_clock::now();
     std::vector<cv::Mat> crops;
     std::vector<std::vector<cv::Point2f>> box_points_list;
     crops.reserve(boxes.size());
@@ -260,14 +304,20 @@ bool OCRPipeline::process(const cv::Mat& image,
         box_points_list.push_back(box_points);
     }
     
-    LOG_DEBUG("Cropped %zu regions", crops.size());
+    auto end_crop = std::chrono::high_resolution_clock::now();
+    double crop_time = std::chrono::duration<double, std::milli>(end_crop - start_crop).count();
+    LOG_INFO("Cropped %zu regions, time: %.2fms", crops.size(), crop_time);
     
     // Step 4: Classification (optional)
     auto start_cls = std::chrono::high_resolution_clock::now();
     int rotated_count = 0;
+    double cls_preprocess = 0.0, cls_inference = 0.0, cls_postprocess = 0.0;
     
     if (config_.useClassification && classifier_) {
         auto cls_results = classifier_->ClassifyBatch(crops);
+        
+        // Get detailed classification timings
+        classifier_->getLastTimings(cls_preprocess, cls_inference, cls_postprocess);
         
         for (size_t i = 0; i < crops.size() && i < cls_results.size(); ++i) {
             auto [label, confidence] = cls_results[i];
@@ -285,15 +335,17 @@ bool OCRPipeline::process(const cv::Mat& image,
     LOG_INFO("Classification: rotated %d/%zu, %.2fms", rotated_count, crops.size(), cls_time);
     
     // Step 5: Recognition
-    auto start_rec = std::chrono::high_resolution_clock::now();
-    
-    // Track recognition statistics
+    // Track recognition statistics and timing
     int recognized_count = 0;
     int filtered_count = 0;
     int zero_conf_count = 0;
+    double rec_preprocess = 0.0, rec_inference = 0.0, rec_postprocess = 0.0;
+    
+    // Reset timing before recognition loop (Recognize() will accumulate timing)
+    recognizer_->resetTimings();
     
     for (size_t i = 0; i < crops.size(); ++i) {
-        // Recognize text
+        // Recognize text (timing accumulates inside Recognize() calls)
         auto [text, confidence] = recognizer_->Recognize(crops[i]);
         
         if (!text.empty()) {
@@ -318,8 +370,9 @@ bool OCRPipeline::process(const cv::Mat& image,
         }
     }
     
-    auto end_rec = std::chrono::high_resolution_clock::now();
-    double rec_time = std::chrono::duration<double, std::milli>(end_rec - start_rec).count();
+    // Get accumulated recognition timing
+    recognizer_->getLastTimings(rec_preprocess, rec_inference, rec_postprocess);
+    double rec_time = rec_preprocess + rec_inference + rec_postprocess;
     
     LOG_INFO("Recognition: %zu/%zu boxes, %.2fms", results.size(), boxes.size(), rec_time);
     
@@ -340,9 +393,26 @@ bool OCRPipeline::process(const cv::Mat& image,
     
     // Step 6: Statistics
     if (stats) {
+        stats->docPreprocessingTime = doc_preproc_time;
+        
+        // Detection 详细时间
+        stats->detectionPreprocessTime = det_preprocess;
+        stats->detectionInferenceTime = det_inference;
+        stats->detectionPostprocessTime = det_postprocess;
         stats->detectionTime = det_time;
+        
+        // Classification 详细时间
+        stats->classificationPreprocessTime = cls_preprocess;
+        stats->classificationInferenceTime = cls_inference;
+        stats->classificationPostprocessTime = cls_postprocess;
         stats->classificationTime = cls_time;
+        
+        // Recognition 详细时间 (暂时分不清楚，后续优化)
+        stats->recognitionPreprocessTime = rec_preprocess;
+        stats->recognitionInferenceTime = rec_inference;
+        stats->recognitionPostprocessTime = rec_postprocess;
         stats->recognitionTime = rec_time;
+        
         stats->totalTime = total_time;
         stats->detectedBoxes = static_cast<int>(boxes.size());
         stats->rotatedBoxes = rotated_count;

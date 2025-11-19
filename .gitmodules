@@ -4,3 +4,6 @@
 [submodule "3rd-party/clipper2"]
 	path = 3rd-party/clipper2
 	url = https://github.com/AngusJohnson/Clipper2.git
+[submodule "3rd-party/FlameGraph"]
+	path = 3rd-party/FlameGraph
+	url = https://github.com/brendangregg/FlameGraph.git

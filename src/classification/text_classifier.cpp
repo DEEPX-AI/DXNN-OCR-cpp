@@ -43,22 +43,31 @@ std::pair<std::string, float> TextClassifier::Classify(const cv::Mat& textImage)
         return {"0", 0.0f};
     }
     
-    // 预处理
+    // Preprocess
+    auto t1 = std::chrono::high_resolution_clock::now();
     cv::Mat preprocessed = Preprocess(textImage);
+    auto t2 = std::chrono::high_resolution_clock::now();
     if (preprocessed.empty()) {
         LOG_ERROR("Preprocessing failed");
         return {"0", 0.0f};
     }
     
-    // 推理
+    // Inference
     auto outputs = engine_->Run(preprocessed.data);
+    auto t3 = std::chrono::high_resolution_clock::now();
     if (outputs.empty()) {
         LOG_ERROR("Inference failed: no output tensors");
         return {"0", 0.0f};
     }
     
-    // 后处理
+    // Postprocess
     auto result = Postprocess(outputs);
+    auto t4 = std::chrono::high_resolution_clock::now();
+    
+    // Accumulate timing (for batch processing)
+    last_preprocess_time_ += std::chrono::duration<double, std::milli>(t2 - t1).count();
+    last_inference_time_ += std::chrono::duration<double, std::milli>(t3 - t2).count();
+    last_postprocess_time_ += std::chrono::duration<double, std::milli>(t4 - t3).count();
     
     LOG_DEBUG("Classification result: label=%s, confidence=%.3f", 
               result.first.c_str(), result.second);
@@ -72,6 +81,12 @@ std::vector<std::pair<std::string, float>> TextClassifier::ClassifyBatch(
     std::vector<std::pair<std::string, float>> results;
     results.reserve(textImages.size());
     
+    // Reset timing
+    last_preprocess_time_ = 0.0;
+    last_inference_time_ = 0.0;
+    last_postprocess_time_ = 0.0;
+    
+    // Call Classify for each image (timing accumulates inside Classify)
     for (const auto& image : textImages) {
         results.push_back(Classify(image));
     }

@@ -38,7 +38,7 @@ std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred,
     auto contours = findContours(bitmap);
     LOG_DEBUG("Found %zu contours", contours.size());
 
-    // 3. 处理每个轮廓
+    // 处理每个轮廓
     int num_contours = std::min(static_cast<int>(contours.size()), max_candidates_);
     
     for (int i = 0; i < num_contours; i++) {
@@ -99,17 +99,6 @@ std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred,
         
         float scale_x = static_cast<float>(resized_w) / pred.cols;
         float scale_y = static_cast<float>(resized_h) / pred.rows;
-        
-        // Debug first box
-        static bool debug_first = true;
-        if (debug_first && final_box.size() >= 4) {
-            LOG_INFO("PPOCR mapping: pred %dx%d -> padded %dx%d, scale %.4f x %.4f",
-                     pred.cols, pred.rows, resized_w, resized_h, scale_x, scale_y);
-            LOG_INFO("  first point in pred: (%.1f, %.1f) -> padded/orig: (%.1f, %.1f)", 
-                     final_box[0].x, final_box[0].y,
-                     final_box[0].x * scale_x, final_box[0].y * scale_y);
-            debug_first = false;
-        }
 
         DeepXOCR::TextBox text_box;
         size_t num_points = std::min(static_cast<size_t>(4), final_box.size());

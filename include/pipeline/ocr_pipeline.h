@@ -61,12 +61,30 @@ struct PipelineOCRResult {
 };
 
 /**
- * @brief OCR Pipeline性能统计
+ * @brief OCR Pipeline性能统计（详细版）
  */
 struct OCRPipelineStats {
-    double detectionTime = 0.0;        // Detection耗时 (ms)
-    double classificationTime = 0.0;   // Classification耗时 (ms)
-    double recognitionTime = 0.0;      // Recognition耗时 (ms)
+    // Document Preprocessing 阶段
+    double docPreprocessingTime = 0.0;      // 文档预处理总时间 (ms)
+
+    // Detection 阶段
+    double detectionPreprocessTime = 0.0;   // 检测前处理 (ms)
+    double detectionInferenceTime = 0.0;    // 检测推理 (ms)
+    double detectionPostprocessTime = 0.0;  // 检测后处理 (ms)
+    double detectionTime = 0.0;             // 检测总时间 (ms)
+    
+    // Classification 阶段
+    double classificationPreprocessTime = 0.0;   // 分类前处理 (ms)
+    double classificationInferenceTime = 0.0;    // 分类推理 (ms)
+    double classificationPostprocessTime = 0.0;  // 分类后处理 (ms)
+    double classificationTime = 0.0;             // 分类总时间 (ms)
+    
+    // Recognition 阶段
+    double recognitionPreprocessTime = 0.0;   // 识别前处理 (ms)
+    double recognitionInferenceTime = 0.0;    // 识别推理 (ms)
+    double recognitionPostprocessTime = 0.0;  // 识别后处理 (ms)
+    double recognitionTime = 0.0;             // 识别总时间 (ms)
+    
     double totalTime = 0.0;            // 总耗时 (ms)
     
     int detectedBoxes = 0;             // 检测到的文本框数量

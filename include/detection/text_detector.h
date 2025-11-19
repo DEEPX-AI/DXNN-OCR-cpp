@@ -66,6 +66,15 @@ public:
      * @return Vector of detected text boxes
      */
     std::vector<DeepXOCR::TextBox> detect(const cv::Mat& image);
+    
+    /**
+     * @brief Get last detection timing details
+     */
+    void getLastTimings(double& preprocess, double& inference, double& postprocess) const {
+        preprocess = last_preprocess_time_;
+        inference = last_inference_time_;
+        postprocess = last_postprocess_time_;
+    }
 
 private:
     /**
@@ -90,6 +99,11 @@ private:
     std::unique_ptr<dxrt::InferenceEngine> model960_;
     std::unique_ptr<DBPostProcessor> postprocessor_;
     bool initialized_ = false;
+    
+    // Timing details of last detection
+    double last_preprocess_time_ = 0.0;
+    double last_inference_time_ = 0.0;
+    double last_postprocess_time_ = 0.0;
 };
 
 } // namespace ocr

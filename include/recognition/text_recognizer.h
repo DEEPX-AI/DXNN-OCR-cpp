@@ -76,6 +76,20 @@ public:
     // Print model usage statistics
     void PrintModelUsageStats() const;
     
+    // Get last batch recognition timing details
+    void getLastTimings(double& preprocess, double& inference, double& postprocess) const {
+        preprocess = last_preprocess_time_;
+        inference = last_inference_time_;
+        postprocess = last_postprocess_time_;
+    }
+    
+    // Reset timing counters (useful before starting a new batch)
+    void resetTimings() {
+        last_preprocess_time_ = 0.0;
+        last_inference_time_ = 0.0;
+        last_postprocess_time_ = 0.0;
+    }
+    
 private:
     RecognizerConfig config_;
     
@@ -88,6 +102,11 @@ private:
     
     // Model usage statistics
     mutable std::map<int, int> model_usage_;
+    
+    // Timing details of last batch recognition
+    double last_preprocess_time_ = 0.0;
+    double last_inference_time_ = 0.0;
+    double last_postprocess_time_ = 0.0;
     
     // Select appropriate model based on image aspect ratio
     dxrt::InferenceEngine* SelectModel(const cv::Mat& image);
