@@ -47,15 +47,21 @@ bool TextDetector::init() {
     try {
         LOG_INFO("Loading detection models...");
         
+        auto cb = [this](dxrt::TensorPtrs& outputs, void* userArg) {
+            return this->internalCallback(outputs, userArg);
+        };
+
         // Load 640 model
         if (!config_.model640Path.empty()) {
             model640_ = std::make_unique<dxrt::InferenceEngine>(config_.model640Path);
+            model640_->RegisterCallback(cb);
             LOG_INFO("Loaded det_640 model: %s", config_.model640Path.c_str());
         }
         
         // Load 960 model
         if (!config_.model960Path.empty()) {
             model960_ = std::make_unique<dxrt::InferenceEngine>(config_.model960Path);
+            model960_->RegisterCallback(cb);
             LOG_INFO("Loaded det_960 model: %s", config_.model960Path.c_str());
         }
 
@@ -222,43 +228,55 @@ cv::Mat TextDetector::preprocessAsync(const cv::Mat& image, int target_size, int
     return preprocess(image, target_size, resized_h, resized_w);
 }
 
-int TextDetector::runAsync(const cv::Mat& input, int height, int width) {
+void TextDetector::setCallback(DetectionCallback callback) {
+    userCallback_ = callback;
+}
+
+int TextDetector::runAsync(const cv::Mat& input, int height, int width, int64_t taskId, const cv::Mat& originalImage, double preprocess_time) {
     auto* engine = selectModel(height, width);
     if (!engine) return -1;
 
-    // Input from preprocess is guaranteed to be continuous
     if (!input.isContinuous()) {
         LOG_ERROR("Async inference requires continuous input memory");
         return -1;
     }
 
-    // The caller (OCRPipeline) must ensure 'input' stays alive until Wait() is called.
-    // In our pipeline, we store the cv::Mat in the job queue, which keeps the data valid.
-    return engine->RunAsync(reinterpret_cast<void*>(const_cast<uint8_t*>(input.data)));
+    // Create context
+    DetectionContext* ctx = new DetectionContext{
+        height, width,
+        input.rows, input.cols,
+        taskId,
+        originalImage,
+        input, // Keep input alive
+        preprocess_time
+    };
+
+    engine->RunAsync(reinterpret_cast<void*>(const_cast<uint8_t*>(input.data)), ctx);
+    return 0;
 }
 
-std::vector<DeepXOCR::TextBox> TextDetector::waitAndPostprocess(int jobId, int orig_h, int orig_w, int resized_h, int resized_w) {
-    auto* engine = selectModel(orig_h, orig_w); // Re-select to get the correct engine instance
-    if (!engine) return {};
+int TextDetector::internalCallback(dxrt::TensorPtrs& outputs, void* userArg) {
+    DetectionContext* ctx = static_cast<DetectionContext*>(userArg);
+    if (!ctx) return -1;
 
-    // Wait for result
-    auto outputs = engine->Wait(jobId);
-    
+    // Ensure context is deleted
+    std::unique_ptr<DetectionContext> ctxGuard(ctx);
+
     if (outputs.empty()) {
         LOG_ERROR("Inference failed: no output tensors");
-        return {};
+        return -1;
     }
     
     auto& output_tensor = outputs[0];
     if (!output_tensor) {
         LOG_ERROR("Output tensor is null");
-        return {};
+        return -1;
     }
     
     auto shape = output_tensor->shape();
     if (shape.size() != 4) {
         LOG_ERROR("Unexpected output shape size: %zu", shape.size());
-        return {};
+        return -1;
     }
 
     int out_h = shape[2];
@@ -267,7 +285,19 @@ std::vector<DeepXOCR::TextBox> TextDetector::waitAndPostprocess(int jobId, int o
     std::memcpy(pred.data, output_tensor->data(), out_h * out_w * sizeof(float));
     
     // Postprocess
-    return postprocessor_->process(pred, orig_h, orig_w, resized_h, resized_w);
+    auto t_start = std::chrono::high_resolution_clock::now();
+    auto boxes = postprocessor_->process(pred, ctx->orig_h, ctx->orig_w, ctx->resized_h, ctx->resized_w);
+    auto t_end = std::chrono::high_resolution_clock::now();
+    double postprocess_time = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+
+    // Calculate inference time (approximate)
+    double inference_time = 0.0; 
+
+    if (userCallback_) {
+        userCallback_(boxes, ctx->taskId, ctx->originalImage, ctx->preprocess_time, inference_time, postprocess_time);
+    }
+
+    return 0;
 }
 
 cv::Mat TextDetector::runInference(dxrt::InferenceEngine* engine, const cv::Mat& input) {    

@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <functional>
 
 #include "common/logger.hpp"
 #include "common/types.hpp"
@@ -14,6 +15,19 @@ namespace ocr {
 
 // Forward declaration
 class DBPostProcessor;
+
+struct DetectionContext {
+    int orig_h;
+    int orig_w;
+    int resized_h;
+    int resized_w;
+    int64_t taskId;
+    cv::Mat originalImage;
+    cv::Mat inputImage; // Keep input data alive
+    double preprocess_time; // Pass preprocess time to callback
+};
+
+using DetectionCallback = std::function<void(std::vector<DeepXOCR::TextBox> boxes, int64_t taskId, cv::Mat image, double preprocess_time, double inference_time, double postprocess_time)>;
 
 /**
  * Text Detector Configuration
@@ -59,6 +73,11 @@ public:
      * @return true if successful
      */
     bool init();
+
+    /**
+     * @brief Set the callback function for async detection results
+     */
+    void setCallback(DetectionCallback callback);
     
     /**
      * @brief Detect text boxes in image
@@ -90,21 +109,13 @@ public:
      * @param input Preprocessed input data
      * @param height Original image height (for model selection)
      * @param width Original image width (for model selection)
+     * @param taskId Task ID for tracking
+     * @param originalImage Original image for next stage
+     * @param preprocess_time Time taken for preprocessing
      * @return Job ID
      */
-    int runAsync(const cv::Mat& input, int height, int width);
+    int runAsync(const cv::Mat& input, int height, int width, int64_t taskId, const cv::Mat& originalImage, double preprocess_time);
 
-    /**
-     * @brief Wait for async inference result and postprocess
-     * @param jobId Job ID returned by runAsync
-     * @param orig_h Original image height
-     * @param orig_w Original image width
-     * @param resized_h Resized image height
-     * @param resized_w Resized image width
-     * @return Vector of detected text boxes
-     */
-    std::vector<DeepXOCR::TextBox> waitAndPostprocess(int jobId, int orig_h, int orig_w, int resized_h, int resized_w);
-    
     /**
      * @brief Get last detection timing details
      */
@@ -115,6 +126,11 @@ public:
     }
 
 private:
+    /**
+     * @brief Internal callback for DXRT engine
+     */
+    int internalCallback(dxrt::TensorPtrs& outputs, void* userArg);
+
     /**
      * @brief Select appropriate model based on image size
      */
@@ -138,6 +154,8 @@ private:
     std::unique_ptr<DBPostProcessor> postprocessor_;
     bool initialized_ = false;
     
+    DetectionCallback userCallback_;
+
     // Timing details of last detection
     double last_preprocess_time_ = 0.0;
     double last_inference_time_ = 0.0;

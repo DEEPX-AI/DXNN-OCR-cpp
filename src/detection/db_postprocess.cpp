@@ -213,10 +213,10 @@ std::vector<cv::Point2f> DBPostProcessor::unclip(const std::vector<cv::Point2f>&
     // Debug logging
     static int debug_count = 0;
     if (debug_count < 3) {
-        LOG_INFO("Unclip: area=%.2f, length=%.2f, distance=%.2f, solution paths=%zu", 
+        LOG_DEBUG("Unclip: area=%.2f, length=%.2f, distance=%.2f, solution paths=%zu", 
                  area, length, distance, solution.size());
         if (!solution.empty()) {
-            LOG_INFO("  First solution has %zu points", solution[0].size());
+            LOG_DEBUG("  First solution has %zu points", solution[0].size());
         }
         debug_count++;
     }

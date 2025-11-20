@@ -247,7 +247,7 @@ DocumentOrientationResult DocumentOrientationClassifier::Postprocess(const std::
     
     // 置信度阈值检查
     if (max_prob < config_.confidenceThreshold) {
-        LOG_INFO("doc_ori confidence %.3f < threshold %.3f, defaulting to 0°",
+        LOG_DEBUG("doc_ori confidence %.3f < threshold %.3f, defaulting to 0°",
                  max_prob, config_.confidenceThreshold);
         return DocumentOrientationResult(0, 1.0f);
     }

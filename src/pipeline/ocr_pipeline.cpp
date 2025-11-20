@@ -121,6 +121,15 @@ void OCRPipelineStats::Show() const {
 
 OCRPipeline::OCRPipeline(const OCRPipelineConfig& config)
     : config_(config), initialized_(false) {
+    // Get CPU core count for thread pool sizing
+    unsigned int numCores = std::thread::hardware_concurrency();
+    
+    numDetectionThreads_ = std::max(1u, numCores );
+    numRecognitionThreads_ = std::max(1u, numCores );
+    
+    LOG_INFO("OCRPipeline: Detected %u CPU cores", numCores);
+    LOG_INFO("  Detection threads: %d", numDetectionThreads_);
+    LOG_INFO("  Recognition threads: %d", numRecognitionThreads_);
 }
 
 OCRPipeline::~OCRPipeline() {
@@ -136,6 +145,35 @@ bool OCRPipeline::initialize() {
     
     // 初始化Detector
     detector_ = std::make_unique<TextDetector>(config_.detectorConfig);
+    
+    // Set callback for async mode
+    detector_->setCallback([this](std::vector<DeepXOCR::TextBox> boxes, int64_t taskId, cv::Mat image, double pp, double inf, double post) {
+        // Sort Boxes
+        std::sort(boxes.begin(), boxes.end(), [](const DeepXOCR::TextBox& a, const DeepXOCR::TextBox& b) {
+            if (std::abs(a.points[0].y - b.points[0].y) < 1.0f) {
+                return a.points[0].x < b.points[0].x;
+            }
+            return a.points[0].y < b.points[0].y;
+        });
+        
+        for (size_t i = 0; i < boxes.size() - 1; ++i) {
+            for (int j = i; j >= 0; --j) {
+                if (std::abs(boxes[j + 1].points[0].y - boxes[j].points[0].y) < 10.0f &&
+                    boxes[j + 1].points[0].x < boxes[j].points[0].x) {
+                    std::swap(boxes[j], boxes[j + 1]);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Push to Recognition Queue
+        if (recQueue_) {
+            recQueue_->push({image, std::move(boxes), taskId});
+            LOG_INFO("Pushed task to recognition queue, id=%ld, boxes=%zu", taskId, boxes.size());
+        }
+    });
+
     if (!detector_->init()) {
         LOG_ERROR("Failed to initialize TextDetector");
         return false;
@@ -581,16 +619,27 @@ void OCRPipeline::start() {
     }
 
     detQueue_ = std::make_unique<ConcurrentQueue<DetectionTask>>(30);
-    detJobQueue_ = std::make_unique<ConcurrentQueue<DetectionJob>>(30);
-    recQueue_ = std::make_unique<ConcurrentQueue<RecognitionTask>>(30);
-    outQueue_ = std::make_unique<ConcurrentQueue<OutputTask>>(30);
+    recQueue_ = std::make_unique<ConcurrentQueue<RecognitionTask>>(20);
+    outQueue_ = std::make_unique<ConcurrentQueue<OutputTask>>(15);
 
     running_ = true;
-    detThread_ = std::thread(&OCRPipeline::detectionLoop, this);
-    detPostThread_ = std::thread(&OCRPipeline::detectionPostLoop, this);
-    recThread_ = std::thread(&OCRPipeline::recognitionLoop, this);
     
-    LOG_INFO("Async pipeline started");
+    // Start multiple detection threads
+    detThreads_.reserve(numDetectionThreads_);
+    for (int i = 0; i < numDetectionThreads_; ++i) {
+        detThreads_.emplace_back(&OCRPipeline::detectionLoop, this);
+        LOG_INFO("Started detection thread %d/%d", i + 1, numDetectionThreads_);
+    }
+    
+    // Start multiple recognition threads
+    recThreads_.reserve(numRecognitionThreads_);
+    for (int i = 0; i < numRecognitionThreads_; ++i) {
+        recThreads_.emplace_back(&OCRPipeline::recognitionLoop, this);
+        LOG_INFO("Started recognition thread %d/%d", i + 1, numRecognitionThreads_);
+    }
+    
+    LOG_INFO("Async pipeline started: %d detection + %d recognition threads", 
+             numDetectionThreads_, numRecognitionThreads_);
 }
 
 void OCRPipeline::stop() {
@@ -598,17 +647,27 @@ void OCRPipeline::stop() {
     
     running_ = false;
     
-    // Push dummy tasks to unblock queues
-    if (detQueue_) detQueue_->push({});
-    if (detJobQueue_) detJobQueue_->push({});
-    if (recQueue_) recQueue_->push({});
+    // Push dummy tasks to unblock all threads
+    for (int i = 0; i < numDetectionThreads_; ++i) {
+        if (detQueue_) detQueue_->push({});
+    }
+    for (int i = 0; i < numRecognitionThreads_; ++i) {
+        if (recQueue_) recQueue_->push({});
+    }
     
-    if (detThread_.joinable()) detThread_.join();
-    if (detPostThread_.joinable()) detPostThread_.join();
-    if (recThread_.joinable()) recThread_.join();
+    // Join all detection threads
+    for (auto& thread : detThreads_) {
+        if (thread.joinable()) thread.join();
+    }
+    detThreads_.clear();
+    
+    // Join all recognition threads
+    for (auto& thread : recThreads_) {
+        if (thread.joinable()) thread.join();
+    }
+    recThreads_.clear();
     
     if (detQueue_) detQueue_->clear();
-    if (detJobQueue_) detJobQueue_->clear();
     if (recQueue_) recQueue_->clear();
     if (outQueue_) outQueue_->clear();
     
@@ -618,6 +677,7 @@ void OCRPipeline::stop() {
 bool OCRPipeline::pushTask(const cv::Mat& image, int64_t id) {
     if (!running_ || !detQueue_) return false;
     detQueue_->push({image, id});
+    LOG_INFO("Task pushed to detection queue, id=%ld", id);
     return true;
 }
 
@@ -636,10 +696,12 @@ bool OCRPipeline::getResult(std::vector<PipelineOCRResult>& results, int64_t& id
 void OCRPipeline::detectionLoop() {
     while (running_) {
         DetectionTask task = detQueue_->pop();
+        LOG_INFO("Task popped from detection queue, id=%ld", task.id);
         if (!running_) break;
         if (task.image.empty()) continue;
 
         // 1. Doc Preprocessing (Doc Ori + UVDoc)
+        auto t1 = std::chrono::high_resolution_clock::now();
         cv::Mat processedImage = task.image;
         if (config_.useDocPreprocessing && docPreprocessing_) {
             auto preprocResult = docPreprocessing_->Process(task.image);
@@ -656,66 +718,19 @@ void OCRPipeline::detectionLoop() {
         int target_size = detector_->getTargetSize(h, w);
 
         cv::Mat preprocessed = detector_->preprocessAsync(processedImage, target_size, resized_h, resized_w);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        double preprocess_time = std::chrono::duration<double, std::milli>(t2 - t1).count();
 
         // 3. Submit Async Inference
-        int jobId = detector_->runAsync(preprocessed, h, w);
-        
-        if (jobId >= 0) {
-            // 4. Push to Job Queue for Postprocessing
-            if (detJobQueue_) {
-                detJobQueue_->push({
-                    jobId, 
-                    h, w, 
-                    resized_h, resized_w, 
-                    preprocessed, // Keep alive
-                    task.id,
-                    processedImage // Pass for cropping
-                });
-            }
-        } else {
-            LOG_ERROR("Failed to submit async detection task");
-        }
-    }
-}
-
-void OCRPipeline::detectionPostLoop() {
-    while (running_) {
-        DetectionJob job = detJobQueue_->pop();
-        if (!running_) break;
-
-        // 1. Wait and Postprocess
-        std::vector<DeepXOCR::TextBox> boxes = detector_->waitAndPostprocess(
-            job.jobId, job.orig_h, job.orig_w, job.resized_h, job.resized_w);
-
-        // 2. Sort Boxes
-        std::sort(boxes.begin(), boxes.end(), [](const DeepXOCR::TextBox& a, const DeepXOCR::TextBox& b) {
-            if (std::abs(a.points[0].y - b.points[0].y) < 1.0f) {
-                return a.points[0].x < b.points[0].x;
-            }
-            return a.points[0].y < b.points[0].y;
-        });
-        
-        for (size_t i = 0; i < boxes.size() - 1; ++i) {
-            for (int j = i; j >= 0; --j) {
-                if (std::abs(boxes[j + 1].points[0].y - boxes[j].points[0].y) < 10.0f &&
-                    boxes[j + 1].points[0].x < boxes[j].points[0].x) {
-                    std::swap(boxes[j], boxes[j + 1]);
-                } else {
-                    break;
-                }
-            }
-        }
-
-        // 3. Push to Recognition Queue
-        if (recQueue_) {
-            recQueue_->push({job.originalImage, std::move(boxes), job.taskId});
-        }
+        detector_->runAsync(preprocessed, h, w, task.id, processedImage, preprocess_time);
     }
 }
 
 void OCRPipeline::recognitionLoop() {
     while (running_) {
         RecognitionTask task = recQueue_->pop();
+        LOG_INFO("Task popped from recognition queue, id=%ld", task.id);
+
         if (!running_) break;
         
         std::vector<PipelineOCRResult> results;

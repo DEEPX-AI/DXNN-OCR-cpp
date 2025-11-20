@@ -7,7 +7,7 @@ SCRIPT_DIR="$(dirname "$0")"
 cd "$SCRIPT_DIR"
 
 BUILD_DIR="../build_Debug"
-TEST_BIN="${BUILD_DIR}/test/pipeline/test_pipeline"
+TEST_BIN="${BUILD_DIR}/test/pipeline/test_pipeline_async"
 FLAMEGRAPH_DIR="../3rd-party/FlameGraph"
 OUTPUT="flamegraph.svg"
 
