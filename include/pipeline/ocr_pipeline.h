@@ -225,6 +225,17 @@ private:
         int64_t id;
     };
 
+    struct DetectionJob {
+        int jobId;
+        int orig_h;
+        int orig_w;
+        int resized_h;
+        int resized_w;
+        cv::Mat preprocessedImage; // Keep alive for async inference
+        int64_t taskId;
+        cv::Mat originalImage; // For cropping later
+    };
+
     struct RecognitionTask {
         cv::Mat image; // 预处理后的图片
         std::vector<TextBox> boxes;
@@ -237,13 +248,16 @@ private:
     };
 
     void detectionLoop();
+    void detectionPostLoop(); // Add declaration
     void recognitionLoop();
 
     std::unique_ptr<ConcurrentQueue<DetectionTask>> detQueue_;
+    std::unique_ptr<ConcurrentQueue<DetectionJob>> detJobQueue_; // New queue for async jobs
     std::unique_ptr<ConcurrentQueue<RecognitionTask>> recQueue_;
     std::unique_ptr<ConcurrentQueue<OutputTask>> outQueue_;
 
     std::thread detThread_;
+    std::thread detPostThread_;
     std::thread recThread_;
     std::atomic<bool> running_{false};
     

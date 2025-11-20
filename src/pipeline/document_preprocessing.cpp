@@ -105,7 +105,6 @@ DocumentPreprocessingResult DocumentPreprocessingPipeline::Process(const cv::Mat
     LOG_DEBUG("Doc preprocessing: %dx%d", image.cols, image.rows);
     
     // 使用浅拷贝，避免不必要的内存复制
-    // 只有在需要修改图像（如旋转、去畸变）时，相关函数才会返回新的 Mat
     cv::Mat currentImage = image;
     
     // Stage 1: Document Orientation Correction

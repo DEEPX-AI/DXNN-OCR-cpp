@@ -66,6 +66,44 @@ public:
      * @return Vector of detected text boxes
      */
     std::vector<DeepXOCR::TextBox> detect(const cv::Mat& image);
+
+    /**
+     * @brief Get target size for image based on available models
+     * @param height Image height
+     * @param width Image width
+     * @return Target size (640 or 960)
+     */
+    int getTargetSize(int height, int width);
+
+    /**
+     * @brief Preprocess image and return input tensor data
+     * @param image Input image
+     * @param target_size Target size for resizing
+     * @param resized_h Output resized height
+     * @param resized_w Output resized width
+     * @return Preprocessed image data (CHW format)
+     */
+    cv::Mat preprocessAsync(const cv::Mat& image, int target_size, int& resized_h, int& resized_w);
+
+    /**
+     * @brief Submit async inference task
+     * @param input Preprocessed input data
+     * @param height Original image height (for model selection)
+     * @param width Original image width (for model selection)
+     * @return Job ID
+     */
+    int runAsync(const cv::Mat& input, int height, int width);
+
+    /**
+     * @brief Wait for async inference result and postprocess
+     * @param jobId Job ID returned by runAsync
+     * @param orig_h Original image height
+     * @param orig_w Original image width
+     * @param resized_h Resized image height
+     * @param resized_w Resized image width
+     * @return Vector of detected text boxes
+     */
+    std::vector<DeepXOCR::TextBox> waitAndPostprocess(int jobId, int orig_h, int orig_w, int resized_h, int resized_w);
     
     /**
      * @brief Get last detection timing details

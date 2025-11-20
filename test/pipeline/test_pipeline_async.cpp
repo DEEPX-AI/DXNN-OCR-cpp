@@ -108,10 +108,10 @@ int main(int argc, char** argv) {
     std::thread consumer([&]() {
         std::vector<ocr::PipelineOCRResult> results;
         int64_t id;
-        while (completed_count < total_images) {
+        while (completed_count.load() < total_images) {
             if (pipeline.getResult(results, id)) {
-                completed_count++;
-                if (completed_count % 10 == 0) {
+                completed_count.fetch_add(1);
+                if (completed_count.load() % 10 == 0) {
                     LOG_INFO("Processed %d/%d", completed_count.load(), total_images);
                 }
             } else {

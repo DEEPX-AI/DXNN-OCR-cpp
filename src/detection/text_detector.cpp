@@ -95,8 +95,8 @@ std::vector<DeepXOCR::TextBox> TextDetector::detect(const cv::Mat& image) {
         return {};
     }
 
-    // Determine target size based on selected model
-    int target_size = (engine == model640_.get()) ? 640 : 960;
+    // Determine target size
+    int target_size = getTargetSize(orig_h, orig_w);
 
     // === Stage 1: Preprocessing ===
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -139,6 +139,15 @@ std::vector<DeepXOCR::TextBox> TextDetector::detect(const cv::Mat& image) {
     }
     
     return boxes;
+}
+
+int TextDetector::getTargetSize(int height, int width) {
+    auto* engine = selectModel(height, width);
+    if (!engine) {
+        // Fallback logic if no model loaded (shouldn't happen if init succeeded)
+        return (std::max(height, width) < config_.sizeThreshold) ? 640 : 960;
+    }
+    return (engine == model640_.get()) ? 640 : 960;
 }
 
 dxrt::InferenceEngine* TextDetector::selectModel(int height, int width) {
@@ -207,6 +216,58 @@ cv::Mat TextDetector::preprocess(const cv::Mat& image, int target_size,
               orig_w, orig_h, padded.cols, padded.rows, pad_h, pad_w, target_size, target_size);
     
     return final_image;
+}
+
+cv::Mat TextDetector::preprocessAsync(const cv::Mat& image, int target_size, int& resized_h, int& resized_w) {
+    return preprocess(image, target_size, resized_h, resized_w);
+}
+
+int TextDetector::runAsync(const cv::Mat& input, int height, int width) {
+    auto* engine = selectModel(height, width);
+    if (!engine) return -1;
+
+    // Input from preprocess is guaranteed to be continuous
+    if (!input.isContinuous()) {
+        LOG_ERROR("Async inference requires continuous input memory");
+        return -1;
+    }
+
+    // The caller (OCRPipeline) must ensure 'input' stays alive until Wait() is called.
+    // In our pipeline, we store the cv::Mat in the job queue, which keeps the data valid.
+    return engine->RunAsync(reinterpret_cast<void*>(const_cast<uint8_t*>(input.data)));
+}
+
+std::vector<DeepXOCR::TextBox> TextDetector::waitAndPostprocess(int jobId, int orig_h, int orig_w, int resized_h, int resized_w) {
+    auto* engine = selectModel(orig_h, orig_w); // Re-select to get the correct engine instance
+    if (!engine) return {};
+
+    // Wait for result
+    auto outputs = engine->Wait(jobId);
+    
+    if (outputs.empty()) {
+        LOG_ERROR("Inference failed: no output tensors");
+        return {};
+    }
+    
+    auto& output_tensor = outputs[0];
+    if (!output_tensor) {
+        LOG_ERROR("Output tensor is null");
+        return {};
+    }
+    
+    auto shape = output_tensor->shape();
+    if (shape.size() != 4) {
+        LOG_ERROR("Unexpected output shape size: %zu", shape.size());
+        return {};
+    }
+
+    int out_h = shape[2];
+    int out_w = shape[3];
+    cv::Mat pred(out_h, out_w, CV_32FC1);
+    std::memcpy(pred.data, output_tensor->data(), out_h * out_w * sizeof(float));
+    
+    // Postprocess
+    return postprocessor_->process(pred, orig_h, orig_w, resized_h, resized_w);
 }
 
 cv::Mat TextDetector::runInference(dxrt::InferenceEngine* engine, const cv::Mat& input) {    

@@ -86,7 +86,7 @@ std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred,
             final_box = unclipped_box;
         }
 
-        // **Coordinate mapping from model output space to original image space**
+        // Coordinate mapping from model output space to original image space
         // PPOCR preprocessing: Pad first to square, then resize
         // - Original image: src_h × src_w (e.g., 1800×1349)
         // - Padded to square: resized_h × resized_w (e.g., 1800×1800, added 451px on right)
@@ -95,7 +95,6 @@ std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred,
         // Mapping: model_output (960×960) → padded_space (1800×1800)
         // scale = padded_size / model_output_size
         // Coordinates in padded space ARE in original image space!
-        // (because padding only adds black borders, doesn't change original content)
         
         float scale_x = static_cast<float>(resized_w) / pred.cols;
         float scale_y = static_cast<float>(resized_h) / pred.rows;

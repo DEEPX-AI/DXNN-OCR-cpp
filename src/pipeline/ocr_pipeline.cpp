@@ -580,13 +580,14 @@ void OCRPipeline::start() {
         return;
     }
 
-    // Initialize queues with a buffer size of 4
-    detQueue_ = std::make_unique<ConcurrentQueue<DetectionTask>>(4);
-    recQueue_ = std::make_unique<ConcurrentQueue<RecognitionTask>>(4);
-    outQueue_ = std::make_unique<ConcurrentQueue<OutputTask>>(4);
+    detQueue_ = std::make_unique<ConcurrentQueue<DetectionTask>>(30);
+    detJobQueue_ = std::make_unique<ConcurrentQueue<DetectionJob>>(30);
+    recQueue_ = std::make_unique<ConcurrentQueue<RecognitionTask>>(30);
+    outQueue_ = std::make_unique<ConcurrentQueue<OutputTask>>(30);
 
     running_ = true;
     detThread_ = std::thread(&OCRPipeline::detectionLoop, this);
+    detPostThread_ = std::thread(&OCRPipeline::detectionPostLoop, this);
     recThread_ = std::thread(&OCRPipeline::recognitionLoop, this);
     
     LOG_INFO("Async pipeline started");
@@ -599,12 +600,15 @@ void OCRPipeline::stop() {
     
     // Push dummy tasks to unblock queues
     if (detQueue_) detQueue_->push({});
+    if (detJobQueue_) detJobQueue_->push({});
     if (recQueue_) recQueue_->push({});
     
     if (detThread_.joinable()) detThread_.join();
+    if (detPostThread_.joinable()) detPostThread_.join();
     if (recThread_.joinable()) recThread_.join();
     
     if (detQueue_) detQueue_->clear();
+    if (detJobQueue_) detJobQueue_->clear();
     if (recQueue_) recQueue_->clear();
     if (outQueue_) outQueue_->clear();
     
@@ -635,7 +639,7 @@ void OCRPipeline::detectionLoop() {
         if (!running_) break;
         if (task.image.empty()) continue;
 
-        // 1. Doc Preprocessing
+        // 1. Doc Preprocessing (Doc Ori + UVDoc)
         cv::Mat processedImage = task.image;
         if (config_.useDocPreprocessing && docPreprocessing_) {
             auto preprocResult = docPreprocessing_->Process(task.image);
@@ -644,10 +648,46 @@ void OCRPipeline::detectionLoop() {
             }
         }
 
-        // 2. Detection
-        std::vector<DeepXOCR::TextBox> boxes = detector_->detect(processedImage);
+        // 2. Detection Preprocess
+        int resized_h, resized_w;
+        int h = processedImage.rows;
+        int w = processedImage.cols;
+        
+        int target_size = detector_->getTargetSize(h, w);
 
-        // 3. Sort Boxes (Same logic as process())
+        cv::Mat preprocessed = detector_->preprocessAsync(processedImage, target_size, resized_h, resized_w);
+
+        // 3. Submit Async Inference
+        int jobId = detector_->runAsync(preprocessed, h, w);
+        
+        if (jobId >= 0) {
+            // 4. Push to Job Queue for Postprocessing
+            if (detJobQueue_) {
+                detJobQueue_->push({
+                    jobId, 
+                    h, w, 
+                    resized_h, resized_w, 
+                    preprocessed, // Keep alive
+                    task.id,
+                    processedImage // Pass for cropping
+                });
+            }
+        } else {
+            LOG_ERROR("Failed to submit async detection task");
+        }
+    }
+}
+
+void OCRPipeline::detectionPostLoop() {
+    while (running_) {
+        DetectionJob job = detJobQueue_->pop();
+        if (!running_) break;
+
+        // 1. Wait and Postprocess
+        std::vector<DeepXOCR::TextBox> boxes = detector_->waitAndPostprocess(
+            job.jobId, job.orig_h, job.orig_w, job.resized_h, job.resized_w);
+
+        // 2. Sort Boxes
         std::sort(boxes.begin(), boxes.end(), [](const DeepXOCR::TextBox& a, const DeepXOCR::TextBox& b) {
             if (std::abs(a.points[0].y - b.points[0].y) < 1.0f) {
                 return a.points[0].x < b.points[0].x;
@@ -666,9 +706,9 @@ void OCRPipeline::detectionLoop() {
             }
         }
 
-        // Push to Recognition Queue
+        // 3. Push to Recognition Queue
         if (recQueue_) {
-            recQueue_->push({processedImage, std::move(boxes), task.id});
+            recQueue_->push({job.originalImage, std::move(boxes), job.taskId});
         }
     }
 }
