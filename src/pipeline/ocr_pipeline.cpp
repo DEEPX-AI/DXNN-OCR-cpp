@@ -572,4 +572,169 @@ bool OCRPipeline::compareOCRResults(const PipelineOCRResult& a, const PipelineOC
     }
 }
 
+// ==================== Async Pipeline Implementation ====================
+
+void OCRPipeline::start() {
+    if (running_) {
+        LOG_WARN("Pipeline already running");
+        return;
+    }
+
+    // Initialize queues with a buffer size of 4
+    detQueue_ = std::make_unique<ConcurrentQueue<DetectionTask>>(4);
+    recQueue_ = std::make_unique<ConcurrentQueue<RecognitionTask>>(4);
+    outQueue_ = std::make_unique<ConcurrentQueue<OutputTask>>(4);
+
+    running_ = true;
+    detThread_ = std::thread(&OCRPipeline::detectionLoop, this);
+    recThread_ = std::thread(&OCRPipeline::recognitionLoop, this);
+    
+    LOG_INFO("Async pipeline started");
+}
+
+void OCRPipeline::stop() {
+    if (!running_) return;
+    
+    running_ = false;
+    
+    // Push dummy tasks to unblock queues
+    if (detQueue_) detQueue_->push({});
+    if (recQueue_) recQueue_->push({});
+    
+    if (detThread_.joinable()) detThread_.join();
+    if (recThread_.joinable()) recThread_.join();
+    
+    if (detQueue_) detQueue_->clear();
+    if (recQueue_) recQueue_->clear();
+    if (outQueue_) outQueue_->clear();
+    
+    LOG_INFO("Async pipeline stopped");
+}
+
+bool OCRPipeline::pushTask(const cv::Mat& image, int64_t id) {
+    if (!running_ || !detQueue_) return false;
+    detQueue_->push({image, id});
+    return true;
+}
+
+bool OCRPipeline::getResult(std::vector<PipelineOCRResult>& results, int64_t& id) {
+    if (!running_ || !outQueue_) return false;
+    
+    OutputTask task = outQueue_->pop();
+    // Check if it's a valid task (e.g. during shutdown we might pop empty tasks)
+    if (!running_) return false;
+    
+    results = std::move(task.results);
+    id = task.id;
+    return true;
+}
+
+void OCRPipeline::detectionLoop() {
+    while (running_) {
+        DetectionTask task = detQueue_->pop();
+        if (!running_) break;
+        if (task.image.empty()) continue;
+
+        // 1. Doc Preprocessing
+        cv::Mat processedImage = task.image;
+        if (config_.useDocPreprocessing && docPreprocessing_) {
+            auto preprocResult = docPreprocessing_->Process(task.image);
+            if (preprocResult.success && !preprocResult.processedImage.empty()) {
+                processedImage = preprocResult.processedImage;
+            }
+        }
+
+        // 2. Detection
+        std::vector<DeepXOCR::TextBox> boxes = detector_->detect(processedImage);
+
+        // 3. Sort Boxes (Same logic as process())
+        std::sort(boxes.begin(), boxes.end(), [](const DeepXOCR::TextBox& a, const DeepXOCR::TextBox& b) {
+            if (std::abs(a.points[0].y - b.points[0].y) < 1.0f) {
+                return a.points[0].x < b.points[0].x;
+            }
+            return a.points[0].y < b.points[0].y;
+        });
+        
+        for (size_t i = 0; i < boxes.size() - 1; ++i) {
+            for (int j = i; j >= 0; --j) {
+                if (std::abs(boxes[j + 1].points[0].y - boxes[j].points[0].y) < 10.0f &&
+                    boxes[j + 1].points[0].x < boxes[j].points[0].x) {
+                    std::swap(boxes[j], boxes[j + 1]);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Push to Recognition Queue
+        if (recQueue_) {
+            recQueue_->push({processedImage, std::move(boxes), task.id});
+        }
+    }
+}
+
+void OCRPipeline::recognitionLoop() {
+    while (running_) {
+        RecognitionTask task = recQueue_->pop();
+        if (!running_) break;
+        
+        std::vector<PipelineOCRResult> results;
+        results.reserve(task.boxes.size());
+
+        // Prepare crops
+        std::vector<cv::Mat> crops;
+        std::vector<std::vector<cv::Point2f>> box_points_list;
+        crops.reserve(task.boxes.size());
+        box_points_list.reserve(task.boxes.size());
+
+        for (size_t i = 0; i < task.boxes.size(); ++i) {
+            std::vector<cv::Point2f> box_points(4);
+            for (int j = 0; j < 4; ++j) box_points[j] = task.boxes[i].points[j];
+            
+            cv::Mat textImage = Geometry::getRotateCropImage(task.image, box_points);
+            if (textImage.empty()) continue;
+            
+            crops.push_back(textImage);
+            box_points_list.push_back(box_points);
+        }
+
+        // Classification
+        if (config_.useClassification && classifier_) {
+            auto cls_results = classifier_->ClassifyBatch(crops);
+            for (size_t i = 0; i < crops.size() && i < cls_results.size(); ++i) {
+                auto [label, confidence] = cls_results[i];
+                if (classifier_->NeedsRotation(label, confidence)) {
+                    cv::rotate(crops[i], crops[i], cv::ROTATE_180);
+                }
+            }
+        }
+
+        // Recognition
+        for (size_t i = 0; i < crops.size(); ++i) {
+            auto [text, confidence] = recognizer_->Recognize(crops[i]);
+            
+            if (!text.empty()) {
+                 PipelineOCRResult res;
+                 res.box = box_points_list[i];
+                 res.text = text;
+                 res.confidence = confidence;
+                 res.index = static_cast<int>(results.size());
+                 results.push_back(res);
+            }
+        }
+        
+        // Sort results
+        if (config_.sortResults && !results.empty()) {
+             sortOCRResults(results);
+             for (size_t i = 0; i < results.size(); ++i) {
+                 results[i].index = static_cast<int>(i);
+             }
+        }
+
+        if (outQueue_) {
+            outQueue_->push({std::move(results), task.id});
+        }
+    }
+}
+
 } // namespace ocr

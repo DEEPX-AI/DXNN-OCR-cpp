@@ -6,10 +6,13 @@
 #include "pipeline/document_preprocessing.h"
 #include "common/types.hpp"
 #include "common/visualizer.h"
+#include "common/concurrent_queue.hpp"
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include <string>
 #include <memory>
+#include <thread>
+#include <atomic>
 
 namespace ocr {
 
@@ -174,6 +177,32 @@ public:
      * @return 预处理后的图片，用于可视化时保证框坐标对齐
      */
     cv::Mat getLastProcessedImage() const { return lastProcessedImage_; }
+
+    /**
+     * @brief 启动异步处理线程
+     */
+    void start();
+
+    /**
+     * @brief 停止异步处理线程
+     */
+    void stop();
+
+    /**
+     * @brief 提交异步任务
+     * @param image 输入图片
+     * @param id 任务ID（用于匹配结果）
+     * @return true表示提交成功（队列未满），false表示队列已满
+     */
+    bool pushTask(const cv::Mat& image, int64_t id);
+
+    /**
+     * @brief 获取异步结果
+     * @param results 输出OCR结果
+     * @param id 输出任务ID
+     * @return true表示获取成功，false表示队列为空
+     */
+    bool getResult(std::vector<PipelineOCRResult>& results, int64_t& id);
     
 private:
     /**
@@ -189,6 +218,34 @@ private:
      * @return true表示a应该排在b前面
      */
     static bool compareOCRResults(const PipelineOCRResult& a, const PipelineOCRResult& b);
+
+    // 异步处理相关定义
+    struct DetectionTask {
+        cv::Mat image;
+        int64_t id;
+    };
+
+    struct RecognitionTask {
+        cv::Mat image; // 预处理后的图片
+        std::vector<TextBox> boxes;
+        int64_t id;
+    };
+
+    struct OutputTask {
+        std::vector<PipelineOCRResult> results;
+        int64_t id;
+    };
+
+    void detectionLoop();
+    void recognitionLoop();
+
+    std::unique_ptr<ConcurrentQueue<DetectionTask>> detQueue_;
+    std::unique_ptr<ConcurrentQueue<RecognitionTask>> recQueue_;
+    std::unique_ptr<ConcurrentQueue<OutputTask>> outQueue_;
+
+    std::thread detThread_;
+    std::thread recThread_;
+    std::atomic<bool> running_{false};
     
 private:
     OCRPipelineConfig config_;
