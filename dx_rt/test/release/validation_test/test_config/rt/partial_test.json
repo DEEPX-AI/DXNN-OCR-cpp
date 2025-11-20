@@ -1,0 +1,39 @@
+{
+    "model": [
+      "DeepInsightDMS_1-DeepInsightDMS-1",
+      "ResNet50_7-ResNet50-8"
+    ],
+
+    "configuration": {
+      "dynamic-cpu-offloading": ["on"]
+    },
+
+    "threadStyle": [
+      {
+        "type": "multi-ie",
+        "count": 3
+      },
+      {
+        "type": "single-ie",
+        "count": 3
+      }
+    ],
+
+    "ieOption": {
+      "ort": [true,false],
+      "bound": ["NPU_2", "NPU_ALL", "NPU_0/2"],
+      "device": ["1", "all"]
+    },
+
+    "inferenceFunction": ["async", "batch"],
+
+    "inoutOption": {
+      "inputStyle": ["single"],
+      "outputBuffer": ["internal","user"],
+      "asyncMethod": ["callback", "wait"],
+      "callbackDelay": 10,
+      "loop": 10,
+      "time": 0,
+      "bitmatch": true
+    }
+}

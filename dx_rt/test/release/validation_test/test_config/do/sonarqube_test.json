@@ -1,0 +1,41 @@
+{
+    "model": [
+      "YOLOV5_1-YOLOV5-1",
+      "SSDResNet34Mini_1-SSDResNet34Mini-1",
+      "MobileNetV1_10-MobileNetV1-11",
+      "YOLOV5Pose640_1-YOLOV5Pose-1"
+    ],
+
+    "configuration": {
+      "dynamic-cpu-offloading": ["off", "on"]
+    },
+
+    "threadStyle": [
+      {
+        "type": "single-ie",
+        "count": 1
+      },
+      {
+        "type": "multi-ie",
+        "count": 1
+      }
+    ],
+
+    "ieOption": {
+      "ort": [false, true],
+      "bound": ["NPU_0/1", "NPU_ALL", "NPU_0", "NPU_1", "NPU_2", "NPU_1/2", "NPU_0/2"],
+      "device": ["0,1", "all", "0", "1"]
+    },
+
+    "inferenceFunction": ["batch", "sync", "async"],
+
+    "inoutOption": {
+      "inputStyle": ["single"],
+      "outputBuffer": ["user","internal"],
+      "asyncMethod": ["wait","callback"],
+      "callbackDelay": 3000,
+      "loop": 10,
+      "time": 0,
+      "bitmatch": true
+    }
+}

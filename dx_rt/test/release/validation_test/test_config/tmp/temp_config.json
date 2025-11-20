@@ -1,0 +1,32 @@
+{
+    "model": ["DeepInsightDMS_1-DeepInsightDMS-1"],
+
+    "configuration": {
+      "dynamic-cpu-offloading": ["on"]
+    },
+
+    "threadStyle": [
+      {
+        "type": "multi-ie",
+        "count": 3
+      }
+    ],
+
+    "ieOption": {
+      "ort": [false],
+      "bound": ["NPU_2"],
+      "device": ["all"]
+    },
+
+    "inferenceFunction": ["batch"],
+
+    "inoutOption": {
+      "inputStyle": ["single"],
+      "outputBuffer": ["internal"],
+      "asyncMethod": ["callback"],
+      "callbackDelay": 100,
+      "loop": 10,
+      "time": 0,
+      "bitmatch": true
+    }
+}

@@ -1,0 +1,11 @@
+name: Merge Conflict Test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  merge-conflict-test:
+    uses: deepx/do_workflows-central/.github/workflows/merge-conflict-test.yml@main
+    secrets:
+      token: ${{ secrets.GH_DCI_TOKEN }}

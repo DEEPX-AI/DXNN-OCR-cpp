@@ -1,0 +1,172 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+*.ko
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+#*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# VSCode
+.vscode/
+
+.idea/
+
+# Build output files
+build/
+build_DX_*/
+build_arm64*/
+build_aarch64*/
+build_riscv64*/
+build_x86_64*/
+build/
+
+lib/bin/
+lib/build/
+lib/release/
+test/bin/
+test/build/
+docs/doxygen/test/bin/
+docs/doxygen/test/build/
+
+/bin
+/util
+/dxrt_test
+/*.bin
+/dxrt_test*.xml
+/npu_validation*.xml
+/*.jpg
+/*.png
+/*.mp4
+/*.avi
+/tool/npu_api_gen/split.xlsx
+test/proto/__pycache__/
+tool/npu_api_gen/__pycache__/*.pyc
+tool/dx-fit/archived_results/
+test_logs*
+
+driver/DX_L1/deepx_genesis/*.cmd
+driver/DX_L1/deepx_genesis/Module.symvers
+driver/DX_L1/deepx_genesis/deepx_npu.mod.c
+driver/DX_L1/deepx_genesis/modules.order
+
+# generated dxrt package from release script
+/dx_rt
+/release.variant
+/release.build.dir
+/release.build.mode
+/release.arch
+/release.info
+/dx_rt*.tar.gz
+
+# mkdocs output files
+/html_docs
+
+# Doxygen output files
+docs/cpp_api/html/
+docs/cpp_api/latex/
+
+# Model test config.
+/*.cfg
+!.bumpversion.cfg
+/*.json
+
+# Debug
+/output*.*.txt
+/db*.*.txt
+/cmake-build-debug/
+/prior_boxes.*.txt
+/tmp.txt
+
+# Dev-internal
+/envsetup.sh
+lib/include/dxrt/gen.h
+
+# generated files from kernel driver
+driver/DX_M1/pcie/tools/dma_from_device
+driver/DX_M1/pcie/tools/dma_to_device
+driver/DX_M1/pcie/tools/poll
+driver/DX_M1/pcie/tools/reg_rw
+driver/DX_M1/pcie/tools/user_ioctl
+driver/DX_M1/pcie/script/result.log
+*.cmd
+*.mod.c
+*Module.symvers
+*modules.order
+driver/DX_M1/pcie/diag/result/result_tc*.txt
+
+# Pybinding
+python_package/src/dx_engine/capi/__pycache__/
+python_package/build/
+extern/pybind11/.github/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# generated files from benchmark
+mlperf_log_accuracy.json
+mlperf_log_detail.txt
+mlperf_log_summary.txt
+mlperf_log_trace.json
+
+# generated files from extern library installation
+extern/x86_64/*
+extern/arm64/*
+extern/aarch64/*
+extern/riscv64/*
+
+# model file
+/*.dxnn
+/*.onnx
+
+# bitmatch log file
+BITMATCH_RESULTS.log
+
+# visual stuidio output directory
+out/
+.vs/
+test_dx_rt*.log
+/vcpkg_installed/
+!vcpkg.json
+!vcpkg-configuration.json
+!CMakeSettings.json
+
+# profiler output
+profiler.png
+
+# venv
+venv*/
+venv*
+**/venv*/
+**/venv*
+
+# clangd
+.cache
+
+debug/

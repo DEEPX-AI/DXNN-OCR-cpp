@@ -1,0 +1,12 @@
+name: (sync-main-changes-to-dev)
+
+on:
+  workflow_dispatch:
+
+permissions: write-all
+
+jobs:
+  call_sync_main_changes_to_dev:
+    uses: deepx/do_workflows-central/.github/workflows/main-to-dev-ff.yml@main
+    secrets:
+      token: ${{ secrets.GH_DCI_TOKEN }}

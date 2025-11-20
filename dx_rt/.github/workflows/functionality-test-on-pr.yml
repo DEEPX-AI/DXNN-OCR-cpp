@@ -1,0 +1,13 @@
+name: Functionality Test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  functionality:
+    uses: deepx/do_workflows-central/.github/workflows/dx_rt-functionality-test-on-pr.yml@main
+    secrets:
+      token: ${{ secrets.GH_DCI_TOKEN }}
+      nx_user: ${{ secrets.NX_USER }}
+      nx_pw: ${{ secrets.nx_pw }}

@@ -1,0 +1,38 @@
+{
+    "model": [
+      "YOLOv7_512-YOLOV7-4"
+    ],
+
+    "configuration": {
+      "dynamic-cpu-offloading": ["off", "on"]
+    },
+
+    "threadStyle": [
+      {
+        "type": "single-ie",
+        "count": 10
+      },
+      {
+        "type": "multi-ie",
+        "count": 3
+      }
+    ],
+
+    "ieOption": {
+      "ort": [true],
+      "bound": ["NPU_0/1", "NPU_ALL", "NPU_0", "NPU_1", "NPU_2", "NPU_1/2", "NPU_0/2"],
+      "device": ["0,1", "all", "0", "1"]
+    },
+
+    "inferenceFunction": ["batch", "sync", "async"],
+
+    "inoutOption": {
+      "inputStyle": ["single"],
+      "outputBuffer": ["user"],
+      "asyncMethod": ["wait", "callback"],
+      "callbackDelay": 100,
+      "loop": 0,
+      "time": 250,
+      "bitmatch": true
+    }
+}
