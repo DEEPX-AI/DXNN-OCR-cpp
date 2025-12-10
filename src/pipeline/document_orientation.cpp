@@ -29,7 +29,7 @@ bool DocumentOrientationClassifier::LoadModel() {
         return false;
     }
     
-    LOG_INFO("Loading doc_ori_fixed model from: %s", config_.modelPath.c_str());
+    LOG_INFO("Loading doc_ori_fixed model from: {}", config_.modelPath);
     
     // 使用DXRT加载模型
     try {
@@ -38,7 +38,7 @@ bool DocumentOrientationClassifier::LoadModel() {
         initialized_ = true;
         return true;
     } catch (const std::exception& e) {
-        LOG_ERROR("Failed to load model: %s", e.what());
+        LOG_ERROR("Failed to load model: {}", e.what());
         return false;
     }
 }
@@ -64,7 +64,7 @@ cv::Mat DocumentOrientationClassifier::CenterCrop(const cv::Mat& image, int crop
     int width = image.cols;
     
     if (height < cropSize || width < cropSize) {
-        LOG_WARN("Image size (%d×%d) smaller than crop size (%d×%d)", 
+        LOG_WARN("Image size ({}×{}) smaller than crop size ({}×{})", 
                  width, height, cropSize, cropSize);
         return image.clone();
     }
@@ -101,7 +101,7 @@ cv::Mat DocumentOrientationClassifier::Normalize(const cv::Mat& image) {
 
 std::vector<float> DocumentOrientationClassifier::Softmax(const std::vector<float>& logits) {
     if (logits.size() != 4) {
-        LOG_ERROR("Logits size should be 4, got %zu", logits.size());
+        LOG_ERROR("Logits size should be 4, got {}", logits.size());
         return std::vector<float>(4, 0.0f);
     }
     
@@ -131,11 +131,11 @@ std::vector<float> DocumentOrientationClassifier::Preprocess(const cv::Mat& imag
         return std::vector<float>();
     }
     
-    LOG_DEBUG("Preprocessing doc_ori image: %d×%d", image.cols, image.rows);
+    LOG_DEBUG("Preprocessing doc_ori image: {}×{}", image.cols, image.rows);
     
     // 1. 短边缩放到256
     cv::Mat resized = ResizeShortSide(image, 256);
-    LOG_DEBUG("After resize: %d×%d", resized.cols, resized.rows);
+    LOG_DEBUG("After resize: {}×{}", resized.cols, resized.rows);
     
     // 2. 中心裁剪224×224
     cv::Mat cropped = CenterCrop(resized, 224);
@@ -158,7 +158,7 @@ std::vector<float> DocumentOrientationClassifier::Preprocess(const cv::Mat& imag
         }
     }
     
-    LOG_DEBUG("Preprocessing complete: %zu elements", result.size());
+    LOG_DEBUG("Preprocessing complete: {} elements", result.size());
     return result;
 }
 
@@ -169,7 +169,7 @@ std::vector<float> DocumentOrientationClassifier::Inference(const std::vector<fl
     }
     
     if (preprocessed.size() != 3 * 224 * 224) {
-        LOG_ERROR("Input size mismatch: expected %d, got %zu", 
+        LOG_ERROR("Input size mismatch: expected {}, got {}", 
                   3 * 224 * 224, preprocessed.size());
         return std::vector<float>(4, 0.0f);
     }
@@ -211,7 +211,7 @@ std::vector<float> DocumentOrientationClassifier::Inference(const std::vector<fl
         }
         
         if (output_size < 4) {
-            LOG_ERROR("Output size too small: %zu", output_size);
+            LOG_ERROR("Output size too small: {}", output_size);
             return std::vector<float>(4, 0.0f);
         }
         
@@ -223,14 +223,14 @@ std::vector<float> DocumentOrientationClassifier::Inference(const std::vector<fl
         return logits;
         
     } catch (const std::exception& e) {
-        LOG_ERROR("Inference failed: %s", e.what());
+        LOG_ERROR("Inference failed: {}", e.what());
         return std::vector<float>(4, 0.0f);
     }
 }
 
 DocumentOrientationResult DocumentOrientationClassifier::Postprocess(const std::vector<float>& logits) {
     if (logits.size() != 4) {
-        LOG_ERROR("Logits size should be 4, got %zu", logits.size());
+        LOG_ERROR("Logits size should be 4, got {}", logits.size());
         return DocumentOrientationResult(0, 0.0f);
     }
     
@@ -242,12 +242,12 @@ DocumentOrientationResult DocumentOrientationClassifier::Postprocess(const std::
                   - probabilities.begin();
     float max_prob = probabilities[max_idx];
     
-    LOG_DEBUG("doc_ori probabilities: [0°=%.3f, 90°=%.3f, 180°=%.3f, 270°=%.3f]",
+    LOG_DEBUG("doc_ori probabilities: [0°={:.3f}, 90°={:.3f}, 180°={:.3f}, 270°={:.3f}]",
               probabilities[0], probabilities[1], probabilities[2], probabilities[3]);
     
     // 置信度阈值检查
     if (max_prob < config_.confidenceThreshold) {
-        LOG_INFO("doc_ori confidence %.3f < threshold %.3f, defaulting to 0°",
+        LOG_DEBUG("doc_ori confidence {:.3f} < threshold {:.3f}, defaulting to 0°",
                  max_prob, config_.confidenceThreshold);
         return DocumentOrientationResult(0, 1.0f);
     }
@@ -256,7 +256,7 @@ DocumentOrientationResult DocumentOrientationClassifier::Postprocess(const std::
     int angles[] = {0, 90, 180, 270};
     int angle = angles[max_idx];
     
-    LOG_INFO("doc_ori detected angle: %d° (confidence: %.3f)", angle, max_prob);
+    LOG_INFO("doc_ori detected angle: {}° (confidence: {:.3f})", angle, max_prob);
     
     return DocumentOrientationResult(angle, max_prob);
 }
@@ -284,7 +284,7 @@ cv::Mat DocumentOrientationClassifier::RotateImage(const cv::Mat& image, int ang
             cv::rotate(image, rotated, cv::ROTATE_90_CLOCKWISE);
             break;
         default:
-            LOG_WARN("Unknown rotation angle: %d", angle);
+            LOG_WARN("Unknown rotation angle: {}", angle);
             rotated = image.clone();
             break;
     }

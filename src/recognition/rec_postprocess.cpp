@@ -11,14 +11,14 @@ CTCDecoder::CTCDecoder(const std::string& dict_path, bool use_space_char)
     : use_space_char_(use_space_char), blank_index_(0) {
     
     if (!loadDictionary(dict_path, use_space_char)) {
-        LOG_ERROR("Failed to load dictionary from: %s", dict_path.c_str());
+        LOG_ERROR("Failed to load dictionary from: {}", dict_path);
     }
 }
 
 bool CTCDecoder::loadDictionary(const std::string& dict_path, bool use_space_char) {
     std::ifstream file(dict_path, std::ios::binary);
     if (!file.is_open()) {
-        LOG_ERROR("Cannot open dictionary file: %s", dict_path.c_str());
+        LOG_ERROR("Cannot open dictionary file: {}", dict_path);
         return false;
     }
     
@@ -49,12 +49,12 @@ bool CTCDecoder::loadDictionary(const std::string& dict_path, bool use_space_cha
     
     file.close();
     
-    LOG_INFO("Loaded dictionary with %zu characters (including blank)", 
+    LOG_INFO("Loaded dictionary with {} characters (including blank)", 
              character_dict_.size());
-    LOG_DEBUG("First few chars: blank, %s, %s, %s", 
-              character_dict_.size() > 1 ? character_dict_[1].c_str() : "N/A",
-              character_dict_.size() > 2 ? character_dict_[2].c_str() : "N/A",
-              character_dict_.size() > 3 ? character_dict_[3].c_str() : "N/A");
+    LOG_DEBUG("First few chars: blank, {}, {}, {}", 
+              character_dict_.size() > 1 ? character_dict_[1] : "N/A",
+              character_dict_.size() > 2 ? character_dict_[2] : "N/A",
+              character_dict_.size() > 3 ? character_dict_[3] : "N/A");
     
     return true;
 }
@@ -66,8 +66,9 @@ std::pair<std::string, float> CTCDecoder::decode(const dxrt::TensorPtr& output) 
     }
     
     auto shape = output->shape();
+    
     if (shape.size() != 3) {
-        LOG_ERROR("Expected 3D output [batch, time_steps, num_classes], got %zu dimensions", 
+        LOG_ERROR("Expected 3D output [batch, time_steps, num_classes], got {} dimensions", 
                   shape.size());
         return {"", 0.0f};
     }
@@ -77,11 +78,11 @@ std::pair<std::string, float> CTCDecoder::decode(const dxrt::TensorPtr& output) 
     int num_classes = shape[2];
     
     if (batch_size != 1) {
-        LOG_WARN("Batch size is %d, only processing first sample", batch_size);
+        LOG_WARN("Batch size is {}, only processing first sample", batch_size);
     }
     
     if (num_classes != static_cast<int>(character_dict_.size())) {
-        LOG_ERROR("Dictionary size mismatch: model=%d, dict=%zu", 
+        LOG_ERROR("Dictionary size mismatch: model={}, dict={}", 
                   num_classes, character_dict_.size());
         return {"", 0.0f};
     }
@@ -153,7 +154,7 @@ std::pair<std::string, float> CTCDecoder::decodeSequence(
                 text += character_dict_[char_idx];
                 confidences.push_back(deduped_probs[i]);
             } else {
-                LOG_WARN("Character index %d out of bounds (dict size: %zu)", 
+                LOG_WARN("Character index {} out of bounds (dict size: {})", 
                          char_idx, character_dict_.size());
             }
         }

@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <functional>
 
 #include "common/logger.hpp"
 #include "common/types.hpp"
@@ -14,6 +15,19 @@ namespace ocr {
 
 // Forward declaration
 class DBPostProcessor;
+
+struct DetectionContext {
+    int orig_h;
+    int orig_w;
+    int resized_h;
+    int resized_w;
+    int64_t taskId;
+    cv::Mat originalImage;
+    cv::Mat inputImage; // Keep input data alive
+    double preprocess_time; // Pass preprocess time to callback
+};
+
+using DetectionCallback = std::function<void(std::vector<DeepXOCR::TextBox> boxes, int64_t taskId, cv::Mat image, double preprocess_time, double inference_time, double postprocess_time)>;
 
 /**
  * Text Detector Configuration
@@ -27,8 +41,11 @@ struct DetectorConfig {
     int maxCandidates = 1500;     // Max number of candidate boxes
     
     // Model paths for different resolutions (default paths - will be resolved to absolute paths)
-    std::string model640Path = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/det_v5_640.dxnn";
-    std::string model960Path = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/det_v5_960.dxnn";
+    std::string model640Path = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/det_v5_640.dxnn";
+    std::string model960Path = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/det_v5_960.dxnn";
+    
+    // Use mobile model variant (det_mobile_* instead of det_v5_*)
+    bool useMobileModel = false;
     
     // Image size threshold for model selection
     int sizeThreshold = 800;      // Use 640 if max(w,h) < threshold, else 960
@@ -59,6 +76,11 @@ public:
      * @return true if successful
      */
     bool init();
+
+    /**
+     * @brief Set the callback function for async detection results
+     */
+    void setCallback(DetectionCallback callback);
     
     /**
      * @brief Detect text boxes in image
@@ -67,7 +89,51 @@ public:
      */
     std::vector<DeepXOCR::TextBox> detect(const cv::Mat& image);
 
+    /**
+     * @brief Get target size for image based on available models
+     * @param height Image height
+     * @param width Image width
+     * @return Target size (640 or 960)
+     */
+    int getTargetSize(int height, int width);
+
+    /**
+     * @brief Preprocess image and return input tensor data
+     * @param image Input image
+     * @param target_size Target size for resizing
+     * @param resized_h Output resized height
+     * @param resized_w Output resized width
+     * @return Preprocessed image data (CHW format)
+     */
+    cv::Mat preprocessAsync(const cv::Mat& image, int target_size, int& resized_h, int& resized_w);
+
+    /**
+     * @brief Submit async inference task
+     * @param input Preprocessed input data
+     * @param height Original image height (for model selection)
+     * @param width Original image width (for model selection)
+     * @param taskId Task ID for tracking
+     * @param originalImage Original image for next stage
+     * @param preprocess_time Time taken for preprocessing
+     * @return Job ID
+     */
+    int runAsync(const cv::Mat& input, int orig_h, int orig_w, int resized_h, int resized_w, int64_t taskId, const cv::Mat& originalImage, double preprocess_time);
+
+    /**
+     * @brief Get last detection timing details
+     */
+    void getLastTimings(double& preprocess, double& inference, double& postprocess) const {
+        preprocess = last_preprocess_time_;
+        inference = last_inference_time_;
+        postprocess = last_postprocess_time_;
+    }
+
 private:
+    /**
+     * @brief Internal callback for DXRT engine
+     */
+    int internalCallback(dxrt::TensorPtrs& outputs, void* userArg);
+
     /**
      * @brief Select appropriate model based on image size
      */
@@ -90,6 +156,13 @@ private:
     std::unique_ptr<dxrt::InferenceEngine> model960_;
     std::unique_ptr<DBPostProcessor> postprocessor_;
     bool initialized_ = false;
+    
+    DetectionCallback userCallback_;
+
+    // Timing details of last detection
+    double last_preprocess_time_ = 0.0;
+    double last_inference_time_ = 0.0;
+    double last_postprocess_time_ = 0.0;
 };
 
 } // namespace ocr

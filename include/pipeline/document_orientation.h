@@ -12,7 +12,7 @@ namespace ocr {
  * @brief Document Orientation分类配置
  */
 struct DocumentOrientationConfig {
-    std::string modelPath = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/doc_ori_fixed.dxnn";  // doc_ori_fixed.dxnn 模型路径（默认 - 绝对路径）
+    std::string modelPath = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/doc_ori_fixed.dxnn";  // doc_ori_fixed.dxnn 模型路径（默认 - 绝对路径）
     float confidenceThreshold = 0.9f;   // 置信度阈值（低于则默认为0°）- 与Python保持一致
     int inputHeight = 224;              // 输入高度
     int inputWidth = 224;               // 输入宽度

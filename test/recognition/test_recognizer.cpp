@@ -30,8 +30,8 @@ int main(int /* argc */, char** /* argv */) {
     LOG_INFO("=== Step 1: Initialize Detection ===");
     
     DetectorConfig det_config;
-    det_config.model640Path = "engine/model_files/best/det_v5_640.dxnn";
-    det_config.model960Path = "engine/model_files/best/det_v5_960.dxnn";
+    det_config.model640Path = projectRoot + "/engine/model_files/server/det_v5_640.dxnn";
+    det_config.model960Path = projectRoot + "/engine/model_files/server/det_v5_960.dxnn";
     det_config.thresh = 0.3f;
     det_config.boxThresh = 0.6f;
     det_config.maxCandidates = 1500;  // 与Python保持一致
@@ -49,18 +49,18 @@ int main(int /* argc */, char** /* argv */) {
     LOG_INFO("\n=== Step 2: Initialize Recognition ===");
     
     RecognizerConfig rec_config;
-    rec_config.dictPath = "engine/model_files/ppocrv5_dict.txt";
+    rec_config.dictPath = projectRoot + "/engine/model_files/ppocrv5_dict.txt";
     rec_config.confThreshold = 0.3f;
     rec_config.inputHeight = 48;
     
     // 配置所有ratio模型
     rec_config.modelPaths = {
-        {3,  "engine/model_files/best/rec_v5_ratio_3.dxnn"},
-        {5,  "engine/model_files/best/rec_v5_ratio_5.dxnn"},
-        {10, "engine/model_files/best/rec_v5_ratio_10.dxnn"},
-        {15, "engine/model_files/best/rec_v5_ratio_15.dxnn"},
-        {25, "engine/model_files/best/rec_v5_ratio_25.dxnn"},
-        {35, "engine/model_files/best/rec_v5_ratio_35.dxnn"}
+        {3,  projectRoot + "/engine/model_files/server/rec_v5_ratio_3.dxnn"},
+        {5,  projectRoot + "/engine/model_files/server/rec_v5_ratio_5.dxnn"},
+        {10, projectRoot + "/engine/model_files/server/rec_v5_ratio_10.dxnn"},
+        {15, projectRoot + "/engine/model_files/server/rec_v5_ratio_15.dxnn"},
+        {25, projectRoot + "/engine/model_files/server/rec_v5_ratio_25.dxnn"},
+        {35, projectRoot + "/engine/model_files/server/rec_v5_ratio_35.dxnn"}
     };
     
     rec_config.Show();
@@ -94,11 +94,11 @@ int main(int /* argc */, char** /* argv */) {
               });
     
     if (imageFiles.empty()) {
-        LOG_ERROR("No images found in %s", inputDir.c_str());
+        LOG_ERROR("No images found in {}", inputDir);
         return -1;
     }
     
-    LOG_INFO("Found %zu images", imageFiles.size());
+    LOG_INFO("Found {} images", imageFiles.size());
     
     // 统计信息
     int totalImages = 0;
@@ -113,7 +113,7 @@ int main(int /* argc */, char** /* argv */) {
         const auto& imagePath = imageFiles[i];
         std::string filename = imagePath.filename().string();
         
-        LOG_INFO("\n[%zu/%zu] Processing: %s", i+1, imageFiles.size(), filename.c_str());
+        LOG_INFO("\n[{}/{}] Processing: {}", i+1, imageFiles.size(), filename);
         
         // 加载图像
         cv::Mat image = cv::imread(imagePath.string());
@@ -131,8 +131,21 @@ int main(int /* argc */, char** /* argv */) {
         std::chrono::duration<double, std::milli> det_time = det_end - det_start;
         totalDetTime += det_time.count();
         
-        LOG_INFO("  Detected %zu boxes in %.2f ms", boxes.size(), det_time.count());
+        LOG_INFO("  Detected {} boxes in {:.2f} ms", boxes.size(), det_time.count());
         totalBoxes += boxes.size();
+        
+        // Debug: print first 3 boxes for first image (10.jpg)
+        if (i == 0 && !boxes.empty()) {
+            LOG_INFO("DEBUG SYNC: First image (10.jpg) boxes:");
+            for (size_t k = 0; k < std::min(size_t(3), boxes.size()); ++k) {
+                LOG_INFO("  box[{}]: [{:.1f},{:.1f}] [{:.1f},{:.1f}] [{:.1f},{:.1f}] [{:.1f},{:.1f}]",
+                         k,
+                         boxes[k].points[0].x, boxes[k].points[0].y,
+                         boxes[k].points[1].x, boxes[k].points[1].y,
+                         boxes[k].points[2].x, boxes[k].points[2].y,
+                         boxes[k].points[3].x, boxes[k].points[3].y);
+            }
+        }
         
         if (boxes.empty()) {
             continue;
@@ -173,7 +186,7 @@ int main(int /* argc */, char** /* argv */) {
         totalRecognized += imageRecognized;
         totalRecPostprocessTime += rec_time.count();  // 后处理时间 = 识别总时间
         
-        LOG_INFO("  Recognized %d/%zu boxes in %.2f ms", 
+        LOG_INFO("  Recognized {}/{} boxes in {:.2f} ms", 
                  imageRecognized, boxes.size(), rec_time.count());
         
         // Step 3.3: 可视化结果（左右拼接：左边原图+检测框，右边文字）
@@ -181,30 +194,30 @@ int main(int /* argc */, char** /* argv */) {
             image, boxes, "engine/fonts/NotoSansCJK-Regular.ttc");
         std::string outputPath = outputDir + "/" + filename;
         cv::imwrite(outputPath, result);
-        LOG_INFO("  Saved result to: %s", outputPath.c_str());
+        LOG_INFO("  Saved result to: {}", outputPath);
     }
     
     // ====================================
     // Step 4: 统计总结
     // ====================================
     LOG_INFO("\n=== Final Statistics ===");
-    LOG_INFO("Total images: %d", totalImages);
-    LOG_INFO("Total boxes detected: %d", totalBoxes);
-    LOG_INFO("Total boxes recognized: %d", totalRecognized);
-    LOG_INFO("Recognition rate: %.1f%%", 
+    LOG_INFO("Total images: {}", totalImages);
+    LOG_INFO("Total boxes detected: {}", totalBoxes);
+    LOG_INFO("Total boxes recognized: {}", totalRecognized);
+    LOG_INFO("Recognition rate: {:.1f}%", 
              totalBoxes > 0 ? (100.0 * totalRecognized / totalBoxes) : 0.0);
     LOG_INFO("\n=== Performance Timing ===");
     LOG_INFO("Detection:");
-    LOG_INFO("  Total: %.2f ms", totalDetTime);
-    LOG_INFO("  Average: %.2f ms/image", 
+    LOG_INFO("  Total: {:.2f} ms", totalDetTime);
+    LOG_INFO("  Average: {:.2f} ms/image", 
              totalImages > 0 ? totalDetTime / totalImages : 0);
     LOG_INFO("\nRecognition Postprocess:");
-    LOG_INFO("  Total: %.2f ms", totalRecPostprocessTime);
-    LOG_INFO("  Average: %.2f ms/image", 
+    LOG_INFO("  Total: {:.2f} ms", totalRecPostprocessTime);
+    LOG_INFO("  Average: {:.2f} ms/image", 
              totalImages > 0 ? totalRecPostprocessTime / totalImages : 0);
-    LOG_INFO("  Average: %.2f ms/box",
+    LOG_INFO("  Average: {:.2f} ms/box",
              totalBoxes > 0 ? totalRecPostprocessTime / totalBoxes : 0);
-    LOG_INFO("\nResults saved to: %s", outputDir.c_str());
+    LOG_INFO("\nResults saved to: {}", outputDir);
     
     return 0;
 }

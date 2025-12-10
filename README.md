@@ -1,84 +1,148 @@
-# DXNN OCR - OCR GUI Application
+# DeepX OCR - High-Performance C++ OCR Inference Engine
 
-## 📋 Project Overview
+<p align="center">
+  <a href="README_CN.md">中文</a> •
+  <img src="https://img.shields.io/badge/C++-17-blue.svg" alt="C++">
+  <img src="https://img.shields.io/badge/Platform-Linux-green.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/Build-Passing-brightgreen.svg" alt="Build Status">
+</p>
 
-DXNN OCR is an OCR (Optical Character Recognition) GUI application based on DX Runtime. It provides an intuitive user interface using PySide6 and utilizes [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) models to extract text from images.
+**DeepX OCR** is a high-performance, multi-threaded asynchronous OCR inference engine based on **PP-OCRv5**, optimized for **DeepX NPU** acceleration.
 
-## 🚀 Installation and Environment Setup
+---
 
-### Prerequisites
+## 📖 Documentation
 
-For a simple installation, you can just run the `ocr_install.sh` script.
+- **[System Architecture](docs/architecture.md)** - Detailed architecture diagrams, data flow, and model configuration.
 
-Alternatively, you can manually set up the environment as follows:
+---
+
+## ✨ Features
+
+- **🚀 High Performance**: Asynchronous pipeline optimized for DeepX NPU.
+- **🔄 Multi-threading**: Efficient thread pool management for concurrent processing.
+- **🛠️ Modular Design**: Decoupled Detection, Classification, and Recognition modules.
+- **🌍 Multi-language Support**: Built-in `freetype` support for rendering multi-language text.
+- **📊 Comprehensive Benchmarking**: Integrated tools for performance analysis.
+
+---
+
+## ⚡ Quick Start
+
+### 1. Clone & Initialize
 ```bash
-# Python 3.11 or higher
-python --version
-
-# Install required packages
-pip install -r requirements.txt
+# Clone the repository and initialize submodules
+git clone --recursive https://github.com/Chris-godz/ocr_demo.git
+git checkout cppinfer
+cd ocr_demo
 ```
 
-### Model File Preparation
-```
-engine/model_files/
-├── v4/
-│   ├── det.dxnn
-│   ├── cls.dxnn
-│   └── rec_ratio_*.dxnn
-└── v5/
-    ├── det_v5.dxnn
-    ├── cls_v5.dxnn
-    └── rec_v5_ratio_*.dxnn
-```
-
-## 🔧 Usage
-
-### Execution Method
+### 2. Install Dependencies
 ```bash
-# Run with v4 model
-python demo.py --version v4
-
-# Run with v5 model
-python demo.py --version v5
+# Install freetype dependencies (for multi-language text rendering)
+sudo apt-get install libfreetype6-dev libharfbuzz-dev
 ```
 
-### How to Use
+### 3. Build & Setup
+```bash
+# Build the project
+./build.sh
 
-1. **Image Upload**
-   - Click "Upload Images" button or drag and drop files directly
-   - Supported formats: PNG, JPG, JPEG, BMP, GIF
+# Download/Setup models
+./setup.sh
 
-2. **Single Image OCR**
-   - Click image in thumbnail list
-   - Automatic OCR execution and result display
-
-3. **Batch OCR Execution**
-   - Click "Run All Inference" button
-   - Sequential OCR execution for all uploaded images
-
-4. **Result Verification**
-   - **Left Panel**: Inferred text results and processed image preview
-   - **Center Panel**: Main image viewer with processing results
-   - **Right Panel**: Performance information and file management
-
-## 🏗️ Project Structure
-
-```
-DXNNOCR/
-├── demo.py                 # Main GUI application
-├── engine/
-│   ├── paddleocr.py       # PaddleOCR engine implementation (based on https://github.com/PaddlePaddle/PaddleOCR)
-│   ├── draw_utils.py      # Image drawing utilities
-│   └── model_files/       # DXNN model files
-├── dx_engine.py           # Inference engine (external library)
-└── README.md             # Project documentation
+# Set DXRT environment variables (Example)
+source ./set_env.sh 1 2 1 3 2 4
 ```
 
-## 📄 License
+### 4. Run Tests
+```bash
+# Run the interactive test menu
+./run.sh
+```
 
-This project is distributed under the MIT License.
+---
 
-## 📞 Contact
+## 🛠️ Build Configuration
 
-For project inquiries or bug reports, please submit through issues. 
+This project uses **Git Submodules** to manage dependencies (`nlohmann/json`, `Clipper2`, `spdlog`, `OpenCV`, `opencv_contrib`).
+
+### Option 1: Build OpenCV from Source (Recommended)
+*Includes `opencv_contrib` for better text rendering support.*
+
+```bash
+# Update submodules
+git submodule update --init 3rd-party/opencv
+git submodule update --init 3rd-party/opencv_contrib
+
+# Build
+./build.sh
+```
+
+### Option 2: Use System OpenCV
+*Faster build if you already have OpenCV installed.*
+
+```bash
+# Set environment variable
+export BUILD_OPENCV_FROM_SOURCE=OFF
+
+# Build
+./build.sh
+```
+
+---
+
+## 📁 Project Structure
+
+```
+OCR/
+├── 📂 src/                    # Source Code
+│   ├── 📂 common/             # Common Utilities (geometry, visualizer, logger)
+│   ├── 📂 preprocessing/      # Preprocessing (uvdoc, image_ops)
+│   ├── 📂 detection/          # Text Detection Module
+│   ├── 📂 classification/     # Orientation Classification
+│   ├── 📂 recognition/        # Text Recognition Module
+│   └── 📂 pipeline/           # Main OCR Pipeline
+├── 📂 3rd-party/              # Dependencies (Git Submodules)
+│   ├── 📦 json                # nlohmann/json
+│   ├── 📦 clipper2            # Polygon Clipping
+│   ├── 📦 spdlog              # Logging
+│   ├── 📦 opencv              # Computer Vision
+│   └── 📦 opencv_contrib      # Extra Modules (freetype)
+├── 📂 engine/model_files/     # Model Weights
+│   ├── 📂 server/             # High-Accuracy Models
+│   └── 📂 mobile/             # Lightweight Models
+├── 📂 benchmark/              # Performance Benchmarking
+├── 📂 test/                   # Unit & Integration Tests
+├── 📂 docs/                   # Documentation
+├── 📜 build.sh                # Build Script
+├── 📜 run.sh                  # Interactive Runner
+└── 📜 setup.sh                # Model Setup Script
+```
+
+---
+
+## 🧪 Testing & Benchmarking
+
+### Interactive Mode
+```bash
+./run.sh
+```
+
+### Manual Execution
+```bash
+# Pipeline Test
+./build_Release/bin/test_pipeline_async
+
+# Module Tests
+./build_Release/test_detector                 # Detection
+./build_Release/test_recognizer               # Recognition (Server)
+./build_Release/test_recognizer_mobile        # Recognition (Mobile)
+```
+
+### Benchmarking
+```bash
+# Run Python benchmark wrapper
+python3 benchmark/run_benchmark.py --model server
+python3 benchmark/run_benchmark.py --model mobile
+```

@@ -195,7 +195,7 @@ bool Visualizer::save(const cv::Mat& image,
                      const std::string& output_path,
                      int quality) {
     if (image.empty()) {
-        LOG_ERROR("Cannot save empty image to %s", output_path.c_str());
+        LOG_ERROR("Cannot save empty image to {}", output_path);
         return false;
     }
 
@@ -205,7 +205,7 @@ bool Visualizer::save(const cv::Mat& image,
 
     bool success = cv::imwrite(output_path, image, params);
     if (!success) {
-        LOG_ERROR("Failed to save image to %s", output_path.c_str());
+        LOG_ERROR("Failed to save image to {}", output_path);
     }
 
     return success;
@@ -309,7 +309,7 @@ cv::Mat Visualizer::drawOCRResultsSideBySide(const cv::Mat& image,
         
         std::ifstream file(font);
         if (!file.good()) {
-            LOG_ERROR("Font file not found: %s", font.c_str());
+            LOG_ERROR("Font file not found: {}", font);
             LOG_ERROR("Please ensure the font file exists in: engine/fonts/");
             throw std::runtime_error("Font file not found");
         }

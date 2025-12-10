@@ -11,9 +11,9 @@ namespace ocr {
 
 void UVDocConfig::Show() const {
     LOG_INFO("UVDocConfig:");
-    LOG_INFO("  modelPath=%s", modelPath.c_str());
-    LOG_INFO("  inputSize=%dx%d", inputWidth, inputHeight);
-    LOG_INFO("  alignCorners=%s", alignCorners ? "true" : "false");
+    LOG_INFO("  modelPath={}", modelPath);
+    LOG_INFO("  inputSize={}x{}", inputWidth, inputHeight);
+    LOG_INFO("  alignCorners={}", alignCorners ? "true" : "false");
 }
 
 UVDocProcessor::UVDocProcessor(const UVDocConfig& config)
@@ -40,13 +40,13 @@ bool UVDocProcessor::LoadModel() {
     }
     
     try {
-        LOG_INFO("[LoadModel] Loading UVDoc model from: %s", config_.modelPath.c_str());
+        LOG_INFO("[LoadModel] Loading UVDoc model from: {}", config_.modelPath);
         engine_ = new dxrt::InferenceEngine(config_.modelPath);
         modelLoaded_ = true;
         LOG_INFO("[LoadModel] UVDoc model loaded successfully");
         return true;
     } catch (const std::exception& e) {
-        LOG_ERROR("[LoadModel] Failed to load model: %s", e.what());
+        LOG_ERROR("[LoadModel] Failed to load model: {}", e.what());
         return false;
     }
 }
@@ -73,7 +73,7 @@ cv::Mat UVDocProcessor::Preprocess(const cv::Mat& image) {
     //
     // Note: cv::resize uses cv::Size(width, height)
     
-    LOG_DEBUG("[Preprocess] Input: %dx%d (WxH)", image.cols, image.rows);
+    LOG_DEBUG("[Preprocess] Input: {}x{} (WxH)", image.cols, image.rows);
     
     // Resize to (width=488, height=712)
     // Python: size=[712, 488] -> height=712, width=488
@@ -81,7 +81,7 @@ cv::Mat UVDocProcessor::Preprocess(const cv::Mat& image) {
     cv::Mat resized;
     cv::resize(image, resized, cv::Size(config_.inputWidth, config_.inputHeight));
     
-    LOG_DEBUG("[Preprocess] Resized to: %dx%d (WxH), target was H=%d W=%d", 
+    LOG_DEBUG("[Preprocess] Resized to: {}x{} (WxH), target was H={} W={}", 
               resized.cols, resized.rows, config_.inputHeight, config_.inputWidth);
     
     // Transpose HWC -> CHW to match Python's output
@@ -102,7 +102,7 @@ cv::Mat UVDocProcessor::Preprocess(const cv::Mat& image) {
     cv::Mat chw = chw_data.reshape(1, {3, config_.inputHeight, config_.inputWidth});
     
     // NO normalization - keep uint8 [0-255] to match Python NPU mode
-    LOG_DEBUG("[Preprocess] Output: CHW shape=[3, %d, %d], dtype=uint8, NO normalization", 
+    LOG_DEBUG("[Preprocess] Output: CHW shape=[3, {}, {}], dtype=uint8, NO normalization", 
               config_.inputHeight, config_.inputWidth);
     
     return chw;
@@ -138,7 +138,7 @@ float UVDocProcessor::Inference(const cv::Mat& preprocessed, cv::Mat& uvMap) {
         }
     }
     
-    LOG_DEBUG("[Inference] Input prepared: NHWC [1, %d, %d, %d] uint8", H, W, C);
+    LOG_DEBUG("[Inference] Input prepared: NHWC [1, {}, {}, {}] uint8", H, W, C);
     
     // Run inference with NHWC uint8 data
     auto outputs = engine_->Run(nhwc_data.data());
@@ -173,7 +173,7 @@ float UVDocProcessor::Inference(const cv::Mat& preprocessed, cv::Mat& uvMap) {
         }
         
         float mean = sum / total_size;
-        LOG_DEBUG("[Inference] Output: mean=%.4f min=%.4f max=%.4f", mean, minv, maxv);
+        LOG_DEBUG("[Inference] Output: mean={:.4f} min={:.4f} max={:.4f}", mean, minv, maxv);
     }));
     
     // Output shape should be [1, 2, H, W] or [1, H, W, 2]
@@ -191,13 +191,13 @@ float UVDocProcessor::Inference(const cv::Mat& preprocessed, cv::Mat& uvMap) {
             out_w = output_shape[2];
         }
     } else {
-        LOG_ERROR("[Inference] Unexpected output shape size: %zu", output_shape.size());
+        LOG_ERROR("[Inference] Unexpected output shape size: {}", output_shape.size());
         return -1.0f;
     }
     
     LOG_DEBUG_EXEC(([&]{
         int out_c = (output_shape[1] == 2) ? output_shape[1] : output_shape[3];
-        LOG_DEBUG("[Inference] Output shape: [%ld %ld %ld %ld] interpreted as: H=%d W=%d C=%d", 
+        LOG_DEBUG("[Inference] Output shape: [{} {} {} {}] interpreted as: H={} W={} C={}", 
                   output_shape[0], output_shape[1], output_shape[2], output_shape[3],
                   out_h, out_w, out_c);
     }));
@@ -383,7 +383,7 @@ UVDocResult UVDocProcessor::Process(const cv::Mat& image) {
     result.inferenceTime = inferenceTime;
     
     if (result.success) {
-        LOG_DEBUG("[Process] UVDoc correction successful, inference time: %.2f ms", inferenceTime);
+        LOG_DEBUG("[Process] UVDoc correction successful, inference time: {:.2f} ms", inferenceTime);
     } else {
         LOG_ERROR("[Process] Postprocessing failed");
     }

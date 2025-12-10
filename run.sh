@@ -16,8 +16,19 @@ BUILD_DIR="${PROJECT_ROOT}/build_Release"
 # Check if build directory exists
 if [ ! -d "$BUILD_DIR" ]; then
     echo -e "${RED}Error: Build directory not found: $BUILD_DIR${NC}"
-    echo -e "${YELLOW}Please run: bash build.sh Release${NC}"
+    echo -e "${YELLOW}Please run: bash build.sh${NC}"
     exit 1
+fi
+
+# Check if DXRT environment variables are set
+if [ -z "$CUSTOM_INTER_OP_THREADS_COUNT" ]; then
+    echo -e "${YELLOW}Warning: DXRT environment variables not set.${NC}"
+    echo -e "${YELLOW}Run: source ./set_env.sh 1 2 1 3 2 4${NC}"
+    echo -e "${YELLOW}Continue anyway? (y/n)${NC}"
+    read -r answer
+    if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then
+        exit 1
+    fi
 fi
 
 # Function to print header
@@ -67,9 +78,10 @@ run_test() {
 
 # Function to run benchmark
 run_benchmark() {
-    print_header "Running: Benchmark"
+    local model_type=$1
+    print_header "Running: Benchmark ($model_type Model)"
     
-    local benchmark_path="${BUILD_DIR}/benchmark/benchmark"
+    local benchmark_path="${BUILD_DIR}/bin/benchmark"
     
     if [ ! -f "$benchmark_path" ]; then
         echo -e "${RED}Error: Benchmark executable not found: $benchmark_path${NC}"
@@ -80,10 +92,10 @@ run_benchmark() {
     local benchmark_script="${PROJECT_ROOT}/benchmark/run_benchmark.py"
     if [ -f "$benchmark_script" ]; then
         echo -e "${BLUE}Using Python benchmark script: $benchmark_script${NC}\n"
-        cd "${PROJECT_ROOT}/benchmark" && python run_benchmark.py
+        cd "${PROJECT_ROOT}/benchmark" && python3 run_benchmark.py --model "$model_type"
     else
         echo -e "${BLUE}Running C++ benchmark directly${NC}\n"
-        "$benchmark_path"
+        "$benchmark_path" 3 "$model_type"
     fi
     
     local exit_code=$?
@@ -102,12 +114,14 @@ run_benchmark() {
 # Main menu
 show_menu() {
     clear
-    print_header "DeepX OCR"
+    print_header "DeepX OCR - Test Suite"
     
     print_menu_item "1" "Run Text Detector Test"
-    print_menu_item "2" "Run Text Recognizer Test"
-    print_menu_item "3" "Run Pipeline Test"
-    print_menu_item "4" "Run Benchmark"
+    print_menu_item "2" "Run Text Recognizer Test (Server Model)"
+    print_menu_item "3" "Run Text Recognizer Test (Mobile Model)"
+    print_menu_item "4" "Run Pipeline Test (Async)"
+    print_menu_item "5" "Run Benchmark (Server Model)"
+    print_menu_item "6" "Run Benchmark (Mobile Model)"
     echo ""
     print_menu_item "q" "Quit"
     echo ""
@@ -128,21 +142,33 @@ while true; do
             read -r
             ;;
         2)
-            run_test "Text Recognizer Test" \
+            run_test "Text Recognizer Test (Server Model)" \
                      "${BUILD_DIR}/test_recognizer" \
                      ""
             echo -e "\n${YELLOW}Press Enter to continue...${NC}"
             read -r
             ;;
         3)
-            run_test "Pipeline Test" \
-                     "${BUILD_DIR}/test/pipeline/test_pipeline" \
+            run_test "Text Recognizer Test (Mobile Model)" \
+                     "${BUILD_DIR}/test_recognizer_mobile" \
                      ""
             echo -e "\n${YELLOW}Press Enter to continue...${NC}"
             read -r
             ;;
         4)
-            run_benchmark
+            run_test "Pipeline Test (Async)" \
+                     "${BUILD_DIR}/bin/test_pipeline_async" \
+                     ""
+            echo -e "\n${YELLOW}Press Enter to continue...${NC}"
+            read -r
+            ;;
+        5)
+            run_benchmark "server"
+            echo -e "\n${YELLOW}Press Enter to continue...${NC}"
+            read -r
+            ;;
+        6)
+            run_benchmark "mobile"
             echo -e "\n${YELLOW}Press Enter to continue...${NC}"
             read -r
             ;;

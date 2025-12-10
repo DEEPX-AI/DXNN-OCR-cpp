@@ -37,16 +37,16 @@ int main(int /* argc */, char** /* argv */) {
               });
     
     if (imageFiles.empty()) {
-        LOG_ERROR("No images found in %s", inputDir.c_str());
+        LOG_ERROR("No images found in {}", inputDir);
         return -1;
     }
     
-    LOG_INFO("Found %zu images in %s", imageFiles.size(), inputDir.c_str());
+    LOG_INFO("Found {} images in {}", imageFiles.size(), inputDir);
 
     // Configure detector
     DetectorConfig config;
-    config.model640Path = "engine/model_files/best/det_v5_640.dxnn";
-    config.model960Path = "engine/model_files/best/det_v5_960.dxnn";
+    config.model640Path = projectRoot + "/engine/model_files/server/det_v5_640.dxnn";
+    config.model960Path = projectRoot + "/engine/model_files/server/det_v5_960.dxnn";
     config.thresh = 0.3f;
     config.boxThresh = 0.6f;
     config.maxCandidates = 1500;  // 与Python保持一致
@@ -64,7 +64,7 @@ int main(int /* argc */, char** /* argv */) {
     }
 
     // Process all images
-    LOG_INFO("Processing %zu images...", imageFiles.size());
+    LOG_INFO("Processing {} images...", imageFiles.size());
     int successCount = 0;
     int failCount = 0;
     
@@ -72,7 +72,7 @@ int main(int /* argc */, char** /* argv */) {
         const auto& imagePath = imageFiles[i];
         std::string filename = imagePath.filename().string();
         
-        LOG_INFO("[%zu/%zu] Processing: %s", i+1, imageFiles.size(), filename.c_str());
+        LOG_INFO("[{}/{}] Processing: {}", i+1, imageFiles.size(), filename);
         
         // Load image
         cv::Mat image = cv::imread(imagePath.string());
@@ -88,7 +88,7 @@ int main(int /* argc */, char** /* argv */) {
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> duration = end - start;
         
-        LOG_INFO("  Detected %zu boxes in %.2f ms", boxes.size(), duration.count());
+        LOG_INFO("  Detected {} boxes in {:.2f} ms", boxes.size(), duration.count());
         
         // Draw boxes and save result (NOT included in timing)
         cv::Mat result = Visualizer::drawTextBoxes(image, boxes);
@@ -100,10 +100,10 @@ int main(int /* argc */, char** /* argv */) {
     
     LOG_INFO("=====================================");
     LOG_INFO("Processing completed:");
-    LOG_INFO("  Total: %zu images", imageFiles.size());
-    LOG_INFO("  Success: %d images", successCount);
-    LOG_INFO("  Failed: %d images", failCount);
-    LOG_INFO("  Results saved to: %s", outputDir.c_str());
+    LOG_INFO("  Total: {} images", imageFiles.size());
+    LOG_INFO("  Success: {} images", successCount);
+    LOG_INFO("  Failed: {} images", failCount);
+    LOG_INFO("  Results saved to: {}", outputDir);
     LOG_INFO("=====================================");
 
     return 0;

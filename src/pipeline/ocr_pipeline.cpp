@@ -29,10 +29,10 @@ void OCRPipelineConfig::Show() const {
     LOG_INFO("\nRecognition Config:");
     recognizerConfig.Show();
     LOG_INFO("\nPipeline Config:");
-    LOG_INFO("  Use Document Preprocessing: %s", useDocPreprocessing ? "true" : "false");
-    LOG_INFO("  Use Classification: %s", useClassification ? "true" : "false");
-    LOG_INFO("  Enable Visualization: %s", enableVisualization ? "true" : "false");
-    LOG_INFO("  Sort Results: %s", sortResults ? "true" : "false");
+    LOG_INFO("  Use Document Preprocessing: {}", useDocPreprocessing ? "true" : "false");
+    LOG_INFO("  Use Classification: {}", useClassification ? "true" : "false");
+    LOG_INFO("  Enable Visualization: {}", enableVisualization ? "true" : "false");
+    LOG_INFO("  Sort Results: {}", sortResults ? "true" : "false");
     LOG_INFO("===============================================");
 }
 
@@ -75,14 +75,45 @@ cv::Point2f PipelineOCRResult::getCenter() const {
 
 void OCRPipelineStats::Show() const {
     LOG_INFO("========== OCR Pipeline Statistics ==========");
-    LOG_INFO("Detection Time: %.2f ms", detectionTime);
-    LOG_INFO("Classification Time: %.2f ms", classificationTime);
-    LOG_INFO("Recognition Time: %.2f ms", recognitionTime);
-    LOG_INFO("Total Time: %.2f ms", totalTime);
-    LOG_INFO("Detected Boxes: %d", detectedBoxes);
-    LOG_INFO("Rotated Boxes: %d", rotatedBoxes);
-    LOG_INFO("Recognized Boxes: %d", recognizedBoxes);
-    LOG_INFO("Recognition Rate: %.1f%%", recognitionRate);
+    
+    if (docPreprocessingTime > 0) {
+        LOG_INFO("Doc Preprocessing: {:.2f} ms ({:.1f}%)", docPreprocessingTime,
+                 totalTime > 0 ? docPreprocessingTime/totalTime*100 : 0);
+    }
+
+    LOG_INFO("Detection:");
+    LOG_INFO("  Preprocess:  {:.2f} ms ({:.1f}%)", detectionPreprocessTime, 
+             totalTime > 0 ? detectionPreprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Inference:   {:.2f} ms ({:.1f}%)", detectionInferenceTime,
+             totalTime > 0 ? detectionInferenceTime/totalTime*100 : 0);
+    LOG_INFO("  Postprocess: {:.2f} ms ({:.1f}%)", detectionPostprocessTime,
+             totalTime > 0 ? detectionPostprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Total:       {:.2f} ms ({:.1f}%)", detectionTime,
+             totalTime > 0 ? detectionTime/totalTime*100 : 0);
+    
+    LOG_INFO("Classification:");
+    LOG_INFO("  Preprocess:  {:.2f} ms ({:.1f}%)", classificationPreprocessTime,
+             totalTime > 0 ? classificationPreprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Inference:   {:.2f} ms ({:.1f}%)", classificationInferenceTime,
+             totalTime > 0 ? classificationInferenceTime/totalTime*100 : 0);
+    LOG_INFO("  Postprocess: {:.2f} ms ({:.1f}%)", classificationPostprocessTime,
+             totalTime > 0 ? classificationPostprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Total:       {:.2f} ms ({:.1f}%)", classificationTime,
+             totalTime > 0 ? classificationTime/totalTime*100 : 0);
+    
+    LOG_INFO("Recognition:");
+    LOG_INFO("  Preprocess:  {:.2f} ms ({:.1f}%)", recognitionPreprocessTime,
+             totalTime > 0 ? recognitionPreprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Inference:   {:.2f} ms ({:.1f}%)", recognitionInferenceTime,
+             totalTime > 0 ? recognitionInferenceTime/totalTime*100 : 0);
+    LOG_INFO("  Postprocess: {:.2f} ms ({:.1f}%)", recognitionPostprocessTime,
+             totalTime > 0 ? recognitionPostprocessTime/totalTime*100 : 0);
+    LOG_INFO("  Total:       {:.2f} ms ({:.1f}%)", recognitionTime,
+             totalTime > 0 ? recognitionTime/totalTime*100 : 0);
+    
+    LOG_INFO("Total Time: {:.2f} ms", totalTime);
+    LOG_INFO("Detected: {} | Rotated: {} | Recognized: {} ({:.1f}%)", 
+             detectedBoxes, rotatedBoxes, recognizedBoxes, recognitionRate);
     LOG_INFO("============================================");
 }
 
@@ -90,6 +121,19 @@ void OCRPipelineStats::Show() const {
 
 OCRPipeline::OCRPipeline(const OCRPipelineConfig& config)
     : config_(config), initialized_(false) {
+    // Get CPU core count for thread pool sizing
+    unsigned int numCores = std::thread::hardware_concurrency();
+    if (numCores == 0) numCores = 4; // Fallback
+
+    // Use only 1 recognition thread to avoid DevicePool lock contention
+    // Multiple threads calling classifier/recognizer cause severe lock contention
+    // on dxrt::DevicePool::PickOneDevice mutex
+    numDetectionThreads_ = 1;  // Detection uses async callback, 1 is enough
+    numRecognitionThreads_ = 1;  // Avoid lock contention
+    
+    LOG_INFO("OCRPipeline: Detected {} CPU cores", numCores);
+    LOG_INFO("  Detection threads: {}", numDetectionThreads_);
+    LOG_INFO("  Recognition threads: {}", numRecognitionThreads_);
 }
 
 OCRPipeline::~OCRPipeline() {
@@ -105,6 +149,44 @@ bool OCRPipeline::initialize() {
     
     // 初始化Detector
     detector_ = std::make_unique<TextDetector>(config_.detectorConfig);
+    
+    // Set callback for async mode
+    detector_->setCallback([this](std::vector<DeepXOCR::TextBox> boxes, int64_t taskId, cv::Mat image, double /*pp*/, double /*inf*/, double /*post*/) {
+        LOG_INFO("Detection callback: taskId={}, boxes={}", taskId, boxes.size());
+        
+        // Sort Boxes
+        std::sort(boxes.begin(), boxes.end(), [](const DeepXOCR::TextBox& a, const DeepXOCR::TextBox& b) {
+            if (std::abs(a.points[0].y - b.points[0].y) < 1.0f) {
+                return a.points[0].x < b.points[0].x;
+            }
+            return a.points[0].y < b.points[0].y;
+        });
+        
+        for (size_t i = 0; i < boxes.size() - 1; ++i) {
+            for (int j = i; j >= 0; --j) {
+                if (std::abs(boxes[j + 1].points[0].y - boxes[j].points[0].y) < 10.0f &&
+                    boxes[j + 1].points[0].x < boxes[j].points[0].x) {
+                    std::swap(boxes[j], boxes[j + 1]);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Push to Recognition Queue (non-blocking to avoid deadlock)
+        if (recQueue_) {
+            size_t boxCount = boxes.size();
+            RecognitionTask task{image, std::move(boxes), taskId};
+            // Use try_push with longer timeout to avoid blocking callback threads
+            while (running_ && !recQueue_->try_push(std::move(task), std::chrono::milliseconds(500))) {
+                LOG_WARN("Recognition queue full, waiting... id={}", taskId);
+            }
+            if (running_) {
+                LOG_INFO("Pushed task to recognition queue, id={}, boxes={}", taskId, boxCount);
+            }
+        }
+    });
+
     if (!detector_->init()) {
         LOG_ERROR("Failed to initialize TextDetector");
         return false;
@@ -142,293 +224,16 @@ bool OCRPipeline::initialize() {
         return false;
     }
     
+    // Register async callback for recognition
+    recognizer_->RegisterCallback([this](const std::string& text, float confidence, void* userArg) {
+        this->onRecognitionComplete(text, confidence, userArg);
+    });
+    LOG_INFO("Recognition async callback registered");
+    
     initialized_ = true;
     LOG_INFO("✅ OCR Pipeline initialized successfully!\n");
     
     return true;
-}
-
-bool OCRPipeline::process(const cv::Mat& image,
-                         std::vector<PipelineOCRResult>& results,
-                         OCRPipelineStats* stats) {
-    if (!initialized_) {
-        LOG_ERROR("OCRPipeline not initialized");
-        return false;
-    }
-    
-    if (image.empty()) {
-        LOG_ERROR("Input image is empty");
-        return false;
-    }
-    
-    results.clear();
-    
-    auto start_total = std::chrono::high_resolution_clock::now();
-    
-    LOG_DEBUG("Starting OCR Pipeline: %dx%d", image.cols, image.rows);
-    
-    // Step 0-1: Document Preprocessing Pipeline (Orientation + UVDoc)
-    cv::Mat processedImage = image;
-    if (config_.useDocPreprocessing && docPreprocessing_) {
-        auto preprocResult = docPreprocessing_->Process(image);
-        
-        if (preprocResult.success && !preprocResult.processedImage.empty()) {
-            processedImage = preprocResult.processedImage;
-            LOG_DEBUG("Doc preprocess: orientation=%s, unwarp=%s, time=%.2fms",
-                      preprocResult.orientationApplied ? "yes" : "no",
-                      preprocResult.unwarpingApplied ? "yes" : "no",
-                      preprocResult.totalTime);
-        } else {
-            LOG_WARN("Document preprocessing failed");
-            processedImage = image.clone();
-        }
-    } else {
-        processedImage = image.clone();
-    }
-    
-    // Cache processed image for visualization
-    lastProcessedImage_ = processedImage.clone();
-    
-    // Step 2: Detection
-    auto start_det = std::chrono::high_resolution_clock::now();
-    std::vector<DeepXOCR::TextBox> boxes = detector_->detect(processedImage);
-    auto end_det = std::chrono::high_resolution_clock::now();
-    double det_time = std::chrono::duration<double, std::milli>(end_det - start_det).count();
-    
-    LOG_INFO("Detection: %zu boxes, %.2fms", boxes.size(), det_time);
-    
-    if (boxes.empty()) {
-        LOG_WARN("No text detected");
-        if (stats) {
-            stats->detectionTime = det_time;
-            stats->classificationTime = 0.0;
-            stats->recognitionTime = 0.0;
-            stats->totalTime = det_time;
-            stats->detectedBoxes = 0;
-            stats->rotatedBoxes = 0;
-            stats->recognizedBoxes = 0;
-            stats->recognitionRate = 0.0;
-        }
-        return true;
-    }
-    
-    // Sort boxes (top to bottom, left to right) - matching Python's sorted_boxes
-    // Python: sorted(dt_boxes, key=lambda x: (x[0][1], x[0][0]))
-    // Sort by first point's (y, x)
-    std::sort(boxes.begin(), boxes.end(), [](const DeepXOCR::TextBox& a, const DeepXOCR::TextBox& b) {
-        if (std::abs(a.points[0].y - b.points[0].y) < 1.0f) {
-            return a.points[0].x < b.points[0].x;
-        }
-        return a.points[0].y < b.points[0].y;
-    });
-    
-    // Additional sorting refinement (matching Python's bubble sort logic)
-    // For boxes on the same line (y difference < 10), sort by x coordinate
-    for (size_t i = 0; i < boxes.size() - 1; ++i) {
-        for (int j = i; j >= 0; --j) {
-            if (std::abs(boxes[j + 1].points[0].y - boxes[j].points[0].y) < 10.0f &&
-                boxes[j + 1].points[0].x < boxes[j].points[0].x) {
-                std::swap(boxes[j], boxes[j + 1]);
-            } else {
-                break;
-            }
-        }
-    }
-    
-    LOG_DEBUG("Boxes sorted by (y, x)");
-    
-    // Step 3: Crop text regions
-    std::vector<cv::Mat> crops;
-    std::vector<std::vector<cv::Point2f>> box_points_list;
-    crops.reserve(boxes.size());
-    box_points_list.reserve(boxes.size());
-    
-    for (size_t i = 0; i < boxes.size(); ++i) {
-        // Convert TextBox points to vector<Point2f>
-        std::vector<cv::Point2f> box_points(4);
-        for (int j = 0; j < 4; ++j) {
-            box_points[j] = boxes[i].points[j];
-        }
-        
-        // Crop text region from processedImage (after UVDoc if applied)
-        cv::Mat textImage = Geometry::getRotateCropImage(processedImage, box_points);
-        if (textImage.empty()) {
-            continue;
-        }
-        
-        crops.push_back(textImage);
-        box_points_list.push_back(box_points);
-    }
-    
-    LOG_DEBUG("Cropped %zu regions", crops.size());
-    
-    // Step 4: Classification (optional)
-    auto start_cls = std::chrono::high_resolution_clock::now();
-    int rotated_count = 0;
-    
-    if (config_.useClassification && classifier_) {
-        auto cls_results = classifier_->ClassifyBatch(crops);
-        
-        for (size_t i = 0; i < crops.size() && i < cls_results.size(); ++i) {
-            auto [label, confidence] = cls_results[i];
-            
-            // Rotate if needed (label=="180" and confidence > threshold)
-            if (classifier_->NeedsRotation(label, confidence)) {
-                cv::rotate(crops[i], crops[i], cv::ROTATE_180);
-                rotated_count++;
-            }
-        }
-    }
-    
-    auto end_cls = std::chrono::high_resolution_clock::now();
-    double cls_time = std::chrono::duration<double, std::milli>(end_cls - start_cls).count();
-    LOG_INFO("Classification: rotated %d/%zu, %.2fms", rotated_count, crops.size(), cls_time);
-    
-    // Step 5: Recognition
-    auto start_rec = std::chrono::high_resolution_clock::now();
-    
-    // Track recognition statistics
-    int recognized_count = 0;
-    int filtered_count = 0;
-    int zero_conf_count = 0;
-    
-    for (size_t i = 0; i < crops.size(); ++i) {
-        // Recognize text
-        auto [text, confidence] = recognizer_->Recognize(crops[i]);
-        
-        if (!text.empty()) {
-            recognized_count++;
-            LOG_DEBUG("  ✓ Crop %zu/%zu: text='%s', conf=%.4f", 
-                      i, crops.size(), text.c_str(), confidence);
-            PipelineOCRResult ocr_result;
-            ocr_result.box = box_points_list[i];
-            ocr_result.text = text;
-            ocr_result.confidence = confidence;
-            ocr_result.index = static_cast<int>(i);
-            results.push_back(ocr_result);
-        } else {
-            filtered_count++;
-            if (confidence == 0.0f) {
-                zero_conf_count++;
-                LOG_DEBUG("  ✗ Crop %zu/%zu: ZERO CONFIDENCE, size=%dx%d", 
-                          i, crops.size(), crops[i].cols, crops[i].rows);
-            } else {
-                LOG_DEBUG("  ✗ Crop %zu/%zu: FILTERED (conf=%.4f < threshold)", i, crops.size(), confidence);
-            }
-        }
-    }
-    
-    auto end_rec = std::chrono::high_resolution_clock::now();
-    double rec_time = std::chrono::duration<double, std::milli>(end_rec - start_rec).count();
-    
-    LOG_INFO("Recognition: %zu/%zu boxes, %.2fms", results.size(), boxes.size(), rec_time);
-    
-    auto end_total = std::chrono::high_resolution_clock::now();
-    double total_time = std::chrono::duration<double, std::milli>(end_total - start_total).count();
-    
-    LOG_INFO("Pipeline complete: %.2fms total", total_time);
-    
-    // Step 5: Sort results
-    if (config_.sortResults && !results.empty()) {
-        sortOCRResults(results);
-        
-        // Update index after sorting
-        for (size_t i = 0; i < results.size(); ++i) {
-            results[i].index = static_cast<int>(i);
-        }
-    }
-    
-    // Step 6: Statistics
-    if (stats) {
-        stats->detectionTime = det_time;
-        stats->classificationTime = cls_time;
-        stats->recognitionTime = rec_time;
-        stats->totalTime = total_time;
-        stats->detectedBoxes = static_cast<int>(boxes.size());
-        stats->rotatedBoxes = rotated_count;
-        stats->recognizedBoxes = static_cast<int>(results.size());
-        stats->recognitionRate = boxes.empty() ? 0.0 : 
-            (static_cast<double>(results.size()) / boxes.size() * 100.0);
-    }
-    
-    // Print model usage statistics
-    if (recognizer_) {
-        recognizer_->PrintModelUsageStats();
-    }
-    
-    return true;
-}
-
-bool OCRPipeline::processWithVisualization(const cv::Mat& image,
-                                          std::vector<PipelineOCRResult>& results,
-                                          cv::Mat& visualImage,
-                                          OCRPipelineStats* stats) {
-    // Process the image (this will cache the processed image)
-    if (!process(image, results, stats)) {
-        return false;
-    }
-    
-    // Use the cached processed image for visualization
-    cv::Mat imageForVisualization = lastProcessedImage_.empty() ? image : lastProcessedImage_;
-    
-    // Create visualization on the processed image (after UVDoc if applied)
-    if (!results.empty()) {
-        // Convert OCRResult to TextBox for visualization
-        std::vector<TextBox> textBoxes;
-        for (const auto& result : results) {
-            TextBox box;
-            for (size_t i = 0; i < 4 && i < result.box.size(); ++i) {
-                box.points[i] = result.box[i];
-            }
-            box.text = result.text;
-            box.confidence = result.confidence;
-            textBoxes.push_back(box);
-        }
-        
-        // Draw OCR results on processed image
-        visualImage = Visualizer::drawOCRResultsSideBySide(imageForVisualization, textBoxes);
-    } else {
-        visualImage = image.clone();
-    }
-    
-    return true;
-}
-
-int OCRPipeline::processBatch(const std::vector<cv::Mat>& images,
-                             std::vector<std::vector<PipelineOCRResult>>& allResults,
-                             OCRPipelineStats* stats) {
-    if (!initialized_) {
-        LOG_ERROR("OCRPipeline not initialized");
-        return 0;
-    }
-    
-    allResults.clear();
-    allResults.resize(images.size());
-    
-    int successCount = 0;
-    OCRPipelineStats totalStats;
-    
-    for (size_t i = 0; i < images.size(); ++i) {
-        OCRPipelineStats singleStats;
-        if (process(images[i], allResults[i], &singleStats)) {
-            successCount++;
-            
-            // Accumulate statistics
-            totalStats.detectionTime += singleStats.detectionTime;
-            totalStats.recognitionTime += singleStats.recognitionTime;
-            totalStats.totalTime += singleStats.totalTime;
-            totalStats.detectedBoxes += singleStats.detectedBoxes;
-            totalStats.recognizedBoxes += singleStats.recognizedBoxes;
-        }
-    }
-    
-    if (stats && successCount > 0) {
-        *stats = totalStats;
-        stats->recognitionRate = totalStats.detectedBoxes == 0 ? 0.0 :
-            (static_cast<double>(totalStats.recognizedBoxes) / totalStats.detectedBoxes * 100.0);
-    }
-    
-    return successCount;
 }
 
 bool OCRPipeline::saveResultsToJSON(const std::vector<PipelineOCRResult>& results,
@@ -470,7 +275,7 @@ bool OCRPipeline::saveResultsToJSON(const std::vector<PipelineOCRResult>& result
     ofs << "}\n";
     
     ofs.close();
-    LOG_INFO("Results saved to: %s", jsonPath.c_str());
+    LOG_INFO("Results saved to: {}", jsonPath.c_str());
     
     return true;
 }
@@ -499,6 +304,275 @@ bool OCRPipeline::compareOCRResults(const PipelineOCRResult& a, const PipelineOC
     } else {
         // 不同行，按Y坐标排序
         return center_a.y < center_b.y;
+    }
+}
+
+// ==================== Async Pipeline Implementation ====================
+
+void OCRPipeline::start() {
+    if (running_) {
+        LOG_WARN("Pipeline already running");
+        return;
+    }
+
+    // Use larger queue sizes to reduce backpressure
+    detQueue_ = std::make_unique<ConcurrentQueue<DetectionTask>>(100);
+    recQueue_ = std::make_unique<ConcurrentQueue<RecognitionTask>>(100);
+    outQueue_ = std::make_unique<ConcurrentQueue<OutputTask>>(100);
+
+    running_ = true;
+    
+    // Start multiple detection threads
+    detThreads_.reserve(numDetectionThreads_);
+    for (int i = 0; i < numDetectionThreads_; ++i) {
+        detThreads_.emplace_back(&OCRPipeline::detectionLoop, this);
+        LOG_INFO("Started detection thread {}/{}", i + 1, numDetectionThreads_);
+    }
+    
+    // Start multiple recognition threads
+    recThreads_.reserve(numRecognitionThreads_);
+    for (int i = 0; i < numRecognitionThreads_; ++i) {
+        recThreads_.emplace_back(&OCRPipeline::recognitionLoop, this);
+        LOG_INFO("Started recognition thread {}/{}", i + 1, numRecognitionThreads_);
+    }
+    
+    LOG_INFO("Async pipeline started: {} detection + {} recognition threads", 
+             numDetectionThreads_, numRecognitionThreads_);
+}
+
+void OCRPipeline::stop() {
+    if (!running_) return;
+    
+    running_ = false;
+    
+    // Push dummy tasks to unblock all threads (use try_push to avoid blocking)
+    for (int i = 0; i < numDetectionThreads_; ++i) {
+        if (detQueue_) detQueue_->try_push({}, std::chrono::milliseconds(100));
+    }
+    for (int i = 0; i < numRecognitionThreads_; ++i) {
+        if (recQueue_) recQueue_->try_push({}, std::chrono::milliseconds(100));
+    }
+    
+    // Join all detection threads
+    for (auto& thread : detThreads_) {
+        if (thread.joinable()) thread.join();
+    }
+    detThreads_.clear();
+    
+    // Join all recognition threads
+    for (auto& thread : recThreads_) {
+        if (thread.joinable()) thread.join();
+    }
+    recThreads_.clear();
+    
+    if (detQueue_) detQueue_->clear();
+    if (recQueue_) recQueue_->clear();
+    if (outQueue_) outQueue_->clear();
+    
+    LOG_INFO("Async pipeline stopped");
+}
+
+bool OCRPipeline::pushTask(const cv::Mat& image, int64_t id) {
+    if (!running_ || !detQueue_) return false;
+    // Use try_push to avoid blocking - return false if queue is full
+    if (!detQueue_->try_push({image, id}, std::chrono::milliseconds(100))) {
+        return false;  // Queue full, caller should retry
+    }
+    LOG_INFO("Task pushed to detection queue, id={}", id);
+    return true;
+}
+
+bool OCRPipeline::getResult(std::vector<PipelineOCRResult>& results, int64_t& id, cv::Mat* processedImage) {
+    if (!running_ || !outQueue_) return false;
+    
+    OutputTask task;
+    if (!outQueue_->try_pop(task, std::chrono::milliseconds(100))) {
+        return false;
+    }
+    
+    results = std::move(task.results);
+    id = task.id;
+    if (processedImage) {
+        *processedImage = task.processedImage;
+    }
+    return true;
+}
+
+void OCRPipeline::detectionLoop() {
+    while (running_) {
+        DetectionTask task;
+        if (!detQueue_->try_pop(task, std::chrono::milliseconds(100))) {
+            LOG_DEBUG("Detection queue pop timeout, retrying...");
+            continue;  // Timeout, check running_ and retry
+        }
+        LOG_INFO("Task popped from detection queue, id={}", task.id);
+        if (!running_) break;
+        if (task.image.empty()) continue;
+
+        // 1. Doc Preprocessing (Doc Ori + UVDoc)
+        auto t1 = std::chrono::high_resolution_clock::now();
+        cv::Mat processedImage = task.image;
+        if (config_.useDocPreprocessing && docPreprocessing_) {
+            auto preprocResult = docPreprocessing_->Process(task.image);
+            if (preprocResult.success && !preprocResult.processedImage.empty()) {
+                processedImage = preprocResult.processedImage;
+            }
+        }
+
+        // 2. Detection Preprocess
+        int resized_h, resized_w;
+        int h = processedImage.rows;
+        int w = processedImage.cols;
+        
+        int target_size = detector_->getTargetSize(h, w);
+
+        cv::Mat preprocessed = detector_->preprocessAsync(processedImage, target_size, resized_h, resized_w);
+        auto t2 = std::chrono::high_resolution_clock::now();
+        double preprocess_time = std::chrono::duration<double, std::milli>(t2 - t1).count();
+
+        // 3. Submit Async Inference (pass correct resized_h, resized_w for coordinate mapping)
+        detector_->runAsync(preprocessed, h, w, resized_h, resized_w, task.id, processedImage, preprocess_time);
+    }
+}
+
+void OCRPipeline::recognitionLoop() {
+    while (running_) {
+        RecognitionTask task;
+        if (!recQueue_->try_pop(task, std::chrono::milliseconds(100))) {
+            LOG_DEBUG("Recognition queue pop timeout, retrying...");
+            continue;  // Timeout, check running_ and retry
+        }
+        LOG_INFO("Task popped from recognition queue, id={}", task.id);
+
+        if (!running_) break;
+        if (task.boxes.empty()) {
+            // No boxes detected, push empty result
+            if (outQueue_) {
+                outQueue_->push({std::vector<PipelineOCRResult>{}, task.image, task.id});
+                LOG_INFO("Pushed empty result to output queue, id={}", task.id);
+            }
+            continue;
+        }
+
+        // Prepare crops and box points
+        std::vector<cv::Mat> crops;
+        std::vector<std::vector<cv::Point2f>> box_points_list;
+        crops.reserve(task.boxes.size());
+        box_points_list.reserve(task.boxes.size());
+
+        for (size_t i = 0; i < task.boxes.size(); ++i) {
+            std::vector<cv::Point2f> box_points(4);
+            for (int j = 0; j < 4; ++j) box_points[j] = task.boxes[i].points[j];
+            
+            cv::Mat textImage = Geometry::getRotateCropImage(task.image, box_points);
+            if (textImage.empty()) continue;
+            
+            crops.push_back(textImage);
+            box_points_list.push_back(box_points);
+        }
+
+        if (crops.empty()) {
+            // All crops failed
+            if (outQueue_) {
+                outQueue_->push({std::vector<PipelineOCRResult>{}, task.image, task.id});
+                LOG_INFO("Pushed empty result (no valid crops) to output queue, id={}", task.id);
+            }
+            continue;
+        }
+
+        // Classification (still sync for now - could be async in future)
+        if (config_.useClassification && classifier_) {
+            auto cls_results = classifier_->ClassifyBatch(crops);
+            for (size_t i = 0; i < crops.size() && i < cls_results.size(); ++i) {
+                auto [label, confidence] = cls_results[i];
+                if (classifier_->NeedsRotation(label, confidence)) {
+                    cv::rotate(crops[i], crops[i], cv::ROTATE_180);
+                }
+            }
+        }
+
+        // Create task context for async recognition
+        auto taskCtx = std::make_shared<RecognitionTaskContext>(task.id, crops.size());
+        taskCtx->processedImage = task.image.clone();  // 保存处理后的图像用于可视化
+        
+        // Copy crops and box points to context (keep crops alive during async inference)
+        for (size_t i = 0; i < crops.size(); ++i) {
+            taskCtx->crops[i] = crops[i].clone();  // Clone to ensure data stays valid
+            taskCtx->boxPoints[i] = box_points_list[i];
+            // Pre-initialize result with box info
+            taskCtx->results[i].box = box_points_list[i];
+            taskCtx->results[i].index = static_cast<int>(i);
+        }
+
+        LOG_INFO("Submitting {} crops for async recognition, id={}", crops.size(), task.id);
+
+        // Submit all crops for async recognition
+        for (size_t i = 0; i < crops.size(); ++i) {
+            // Create per-crop context (will be deleted by callback)
+            RecognitionCropContext* cropCtx = new RecognitionCropContext{taskCtx, i};
+            recognizer_->RecognizeAsync(taskCtx->crops[i], cropCtx);  // Use cloned crop from context
+        }
+    }
+}
+
+void OCRPipeline::onRecognitionComplete(const std::string& text, float confidence, void* userArg) {
+    RecognitionCropContext* cropCtx = static_cast<RecognitionCropContext*>(userArg);
+    if (!cropCtx) {
+        LOG_ERROR("Recognition callback: null crop context");
+        return;
+    }
+
+    // Take ownership of crop context
+    std::unique_ptr<RecognitionCropContext> cropCtxGuard(cropCtx);
+    
+    auto& taskCtx = cropCtx->taskCtx;
+    size_t idx = cropCtx->cropIndex;
+
+    // Update result for this crop
+    {
+        std::lock_guard<std::mutex> lock(taskCtx->resultMutex);
+        taskCtx->results[idx].text = text;
+        taskCtx->results[idx].confidence = confidence;
+    }
+
+    // Decrement pending count
+    int remaining = taskCtx->pendingCount.fetch_sub(1) - 1;
+    
+    LOG_DEBUG("Recognition complete for crop {} of task {}, remaining={}, text='{}'",
+              idx, taskCtx->taskId, remaining, text.empty() ? "<empty>" : text.substr(0, 20));
+
+    // If all crops done, finalize and output
+    if (remaining == 0) {
+        // Collect valid results (non-empty text)
+        std::vector<PipelineOCRResult> validResults;
+        validResults.reserve(taskCtx->results.size());
+        
+        for (const auto& res : taskCtx->results) {
+            if (!res.text.empty()) {
+                validResults.push_back(res);
+            }
+        }
+
+        // Sort results
+        if (config_.sortResults && !validResults.empty()) {
+            sortOCRResults(validResults);
+            for (size_t i = 0; i < validResults.size(); ++i) {
+                validResults[i].index = static_cast<int>(i);
+            }
+        }
+
+        // Push to output queue (use try_push to avoid deadlock)
+        if (outQueue_ && running_) {
+            size_t resultCount = validResults.size();  // Save before move
+            while (running_ && !outQueue_->try_push({std::move(validResults), taskCtx->processedImage, taskCtx->taskId}, 
+                                                     std::chrono::milliseconds(500))) {
+                LOG_WARN("Output queue full, waiting... id={}", taskCtx->taskId);
+            }
+            if (running_) {
+                LOG_INFO("Pushed result to output queue, id={}, results={}", 
+                         taskCtx->taskId, resultCount);
+            }
+        }
     }
 }
 

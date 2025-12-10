@@ -4,3 +4,15 @@
 [submodule "3rd-party/clipper2"]
 	path = 3rd-party/clipper2
 	url = https://github.com/AngusJohnson/Clipper2.git
+[submodule "3rd-party/FlameGraph"]
+	path = 3rd-party/FlameGraph
+	url = https://github.com/brendangregg/FlameGraph.git
+[submodule "3rd-party/spdlog"]
+	path = 3rd-party/spdlog
+	url = https://github.com/gabime/spdlog.git
+[submodule "3rd-party/opencv"]
+	path = 3rd-party/opencv
+	url = https://github.com/opencv/opencv.git
+[submodule "3rd-party/opencv_contrib"]
+	path = 3rd-party/opencv_contrib
+	url = https://github.com/opencv/opencv_contrib.git

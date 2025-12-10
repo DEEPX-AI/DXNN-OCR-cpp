@@ -13,17 +13,17 @@ namespace ocr {
 
 void DocumentPreprocessingConfig::Show() const {
     LOG_INFO("========== Document Preprocessing Pipeline Config ==========");
-    LOG_INFO("Use Orientation Correction: %s", useOrientation ? "true" : "false");
+    LOG_INFO("Use Orientation Correction: {}", useOrientation ? "true" : "false");
     if (useOrientation) {
-        LOG_INFO("  Orientation Model: %s", orientationConfig.modelPath.c_str());
-        LOG_INFO("  Confidence Threshold: %.3f", orientationConfig.confidenceThreshold);
+        LOG_INFO("  Orientation Model: {}", orientationConfig.modelPath);
+        LOG_INFO("  Confidence Threshold: {:.3f}", orientationConfig.confidenceThreshold);
     }
     
-    LOG_INFO("Use Document Unwarping: %s", useUnwarping ? "true" : "false");
+    LOG_INFO("Use Document Unwarping: {}", useUnwarping ? "true" : "false");
     if (useUnwarping) {
-        LOG_INFO("  UVDoc Model: %s", uvdocConfig.modelPath.c_str());
-        LOG_INFO("  Input Size: %dx%d", uvdocConfig.inputWidth, uvdocConfig.inputHeight);
-        LOG_INFO("  Align Corners: %s", uvdocConfig.alignCorners ? "true" : "false");
+        LOG_INFO("  UVDoc Model: {}", uvdocConfig.modelPath);
+        LOG_INFO("  Input Size: {}x{}", uvdocConfig.inputWidth, uvdocConfig.inputHeight);
+        LOG_INFO("  Align Corners: {}", uvdocConfig.alignCorners ? "true" : "false");
     }
     LOG_INFO("===========================================================");
 }
@@ -102,9 +102,10 @@ DocumentPreprocessingResult DocumentPreprocessingPipeline::Process(const cv::Mat
     
     auto totalStart = std::chrono::high_resolution_clock::now();
     
-    LOG_DEBUG("Doc preprocessing: %dx%d", image.cols, image.rows);
+    LOG_DEBUG("Doc preprocessing: {}x{}", image.cols, image.rows);
     
-    cv::Mat currentImage = image.clone();
+    // 使用浅拷贝，避免不必要的内存复制
+    cv::Mat currentImage = image;
     
     // Stage 1: Document Orientation Correction
     currentImage = ProcessOrientation(currentImage, result);
@@ -142,7 +143,7 @@ cv::Mat DocumentPreprocessingPipeline::ProcessOrientation(const cv::Mat& image,
     result.detectedAngle = orientationResult.angle;
     result.orientationConfidence = orientationResult.confidence;
     
-    LOG_DEBUG("Orientation: angle=%d°, conf=%.4f, time=%.2fms", 
+    LOG_DEBUG("Orientation: angle={}°, conf={:.4f}, time={:.2f}ms", 
               orientationResult.angle, orientationResult.confidence, result.orientationTime);
     
     // 应用旋转
@@ -177,11 +178,11 @@ cv::Mat DocumentPreprocessingPipeline::ProcessUnwarping(const cv::Mat& image,
     if (uvdocResult.success && !uvdocResult.correctedImage.empty()) {
         currentImage = uvdocResult.correctedImage;
         result.unwarpingApplied = true;
-        LOG_DEBUG("UVDoc unwarp: success, time=%.2fms", result.unwarpingTime);
+        LOG_DEBUG("UVDoc unwarp: success, time={:.2f}ms", result.unwarpingTime);
     } else {
         result.unwarpingApplied = false;
         LOG_WARN("UVDoc unwarp failed");
-        currentImage = image.clone();
+        currentImage = image;
     }
     
     return currentImage;

@@ -1,0 +1,14 @@
+{
+    "avg_inference_ms": 173.93663061666666,
+    "chars_per_second": 120.73362537579116,
+    "filename": "image_1.png",
+    "fps": 5.749220255990055,
+    "rec_scores": [
+        0.7572162747383118
+    ],
+    "rec_texts": [
+        "广东省钢放研究"
+    ],
+    "runs": 3,
+    "total_chars": 21
+}

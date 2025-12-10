@@ -17,7 +17,7 @@ namespace ocr {
  */
 struct ClassifierConfig {
     // Model path (default - will be resolved to absolute path)
-    std::string modelPath = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/textline_ori.dxnn";
+    std::string modelPath = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/textline_ori.dxnn";
     
     // Classification threshold (rotate if score > threshold)
     float threshold = 0.9f;
@@ -32,9 +32,9 @@ struct ClassifierConfig {
     
     void Show() const {
         LOG_INFO("ClassifierConfig:");
-        LOG_INFO("  modelPath=%s", modelPath.c_str());
-        LOG_INFO("  threshold=%.2f", threshold);
-        LOG_INFO("  inputSize=%dx%d", inputWidth, inputHeight);
+        LOG_INFO("  modelPath={}", modelPath);
+        LOG_INFO("  threshold={:.2f}", threshold);
+        LOG_INFO("  inputSize={}x{}", inputWidth, inputHeight);
     }
 };
 
@@ -66,11 +66,23 @@ public:
         return (label == "180" && confidence > config_.threshold);
     }
     
+    // Get last batch classification timing details
+    void getLastTimings(double& preprocess, double& inference, double& postprocess) const {
+        preprocess = last_preprocess_time_;
+        inference = last_inference_time_;
+        postprocess = last_postprocess_time_;
+    }
+    
 private:
     ClassifierConfig config_;
     std::unique_ptr<dxrt::InferenceEngine> engine_;
     std::vector<std::string> labels_ = {"0", "180"};
     bool initialized_ = false;
+    
+    // Timing details of last batch classification
+    double last_preprocess_time_ = 0.0;
+    double last_inference_time_ = 0.0;
+    double last_postprocess_time_ = 0.0;
     
     // Preprocessing
     cv::Mat Preprocess(const cv::Mat& image);

@@ -10,6 +10,13 @@ set(RECOGNITION_SOURCES
 # Create recognition library
 add_library(ocr_recognition STATIC ${RECOGNITION_SOURCES})
 
+# Ensure OpenCV is built before this target
+if(TARGET opencv_core)
+    add_dependencies(ocr_recognition opencv_core opencv_imgproc opencv_imgcodecs opencv_highgui opencv_freetype)
+endif()
+
+target_include_directories(ocr_recognition PUBLIC ${OpenCV_INCLUDE_DIRS})
+
 # Link dependencies
 target_link_libraries(ocr_recognition
     PUBLIC

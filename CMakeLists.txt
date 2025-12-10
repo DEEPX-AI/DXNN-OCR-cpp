@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(DeepXOCR VERSION 0.1 LANGUAGES CXX)
+project(DeepXOCR VERSION 0.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,12 +36,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     add_compile_options(-fstrict-volatile-bitfields)
 endif()
 
-if(ENABLE_DEBUG_INFO)
-    add_compile_options(-g -rdynamic)
+# ========================================
+# Debug/Performance Profiling Configuration
+# ========================================
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+    message(STATUS "Debug mode: Enabling debug symbols and profiling support")
+    add_compile_options(-g3 -ggdb -rdynamic -fno-omit-frame-pointer)
+    add_compile_options(-O1)
+elseif(ENABLE_DEBUG_INFO)
+    message(STATUS "Debug info enabled for profiling")
+    add_compile_options(-g -rdynamic -fno-omit-frame-pointer)
 endif()
 
-# Find OpenCV
-find_package(OpenCV REQUIRED)
+# ========================================
+# OpenCV Configuration
+# ========================================
+include(cmake/BuildOpenCV.cmake)
 
 # Add 3rd-party libraries
 add_subdirectory(3rd-party/json)
@@ -55,6 +65,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BACKUP}")
 # Global include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/3rd-party/json/include)
+include_directories(${CMAKE_SOURCE_DIR}/3rd-party/spdlog/include)
 
 # Use SYSTEM to suppress warnings from 3rd-party libraries
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/3rd-party/clipper2/CPP/Clipper2Lib/include)

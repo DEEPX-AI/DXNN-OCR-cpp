@@ -10,29 +10,29 @@ import json
 import subprocess
 from pathlib import Path
 
-def run_cpp_benchmark(runs_per_image=3):
+def run_cpp_benchmark(runs_per_image=3, model_type='server'):
     """Run C++ benchmark program"""
     print("="*60)
     print("Running C++ OCR Benchmark...")
     print("="*60)
     
     project_root = Path(__file__).parent.parent
-    benchmark_exe = project_root / "build_Release" / "benchmark" / "benchmark"
+    benchmark_exe = project_root / "build_Release" / "bin" / "benchmark"
     
     if not benchmark_exe.exists():
         print(f"Error: Benchmark executable not found: {benchmark_exe}")
-        print("Please compile first: cd build_Release && make benchmark")
+        print("Please compile first: ./build.sh")
         sys.exit(1)
     
-    # 运行benchmark，传入runs_per_image参数
-    cmd = [str(benchmark_exe), str(runs_per_image)]
+    # 运行benchmark，传入runs_per_image和model_type参数
+    cmd = [str(benchmark_exe), str(runs_per_image), model_type]
     result = subprocess.run(cmd, cwd=str(project_root))
     
     if result.returncode != 0:
         print(f"Error: Benchmark failed with code {result.returncode}")
         sys.exit(1)
 
-def run_accuracy_calculation():
+def run_accuracy_calculation(results_dir):
     """Run Python accuracy calculation script"""
     project_root = Path(__file__).parent.parent
     calc_script = project_root / "benchmark" / "calculate_acc.py"
@@ -42,8 +42,8 @@ def run_accuracy_calculation():
         print("Skipping accuracy calculation.")
         return {}
     
-    # 调用calculate_acc.py with --batch flag
-    cmd = [sys.executable, str(calc_script), '--batch']
+    # 调用calculate_acc.py with --batch flag and specific results directory
+    cmd = [sys.executable, str(calc_script), '--batch', '--output_dir', str(results_dir)]
     result = subprocess.run(cmd, cwd=str(project_root), capture_output=True, text=True)
     
     if result.returncode != 0:
@@ -181,18 +181,23 @@ def main():
     parser = argparse.ArgumentParser(description='Run OCR benchmark')
     parser.add_argument('--runs', type=int, default=3, help='Number of runs per image (default: 3)')
     parser.add_argument('--no-acc', action='store_true', help='Skip accuracy calculation')
+    parser.add_argument('--no-cpp', action='store_true', help='Skip C++ benchmark (only calculate accuracy from existing results)')
+    parser.add_argument('--model', default='server', choices=['server', 'mobile'], help='Model type (default: server)')
     args = parser.parse_args()
     
     project_root = Path(__file__).parent.parent
-    results_dir = project_root / "benchmark" / "results"
+    results_dir = project_root / "benchmark" / f"results_{args.model}"
     
-    # 1. 运行C++benchmark
-    run_cpp_benchmark(args.runs)
+    # 1. 运行C++benchmark (if not skipped)
+    if not args.no_cpp:
+        run_cpp_benchmark(args.runs, args.model)
+    else:
+        print("Skipping C++ benchmark, using existing results...")
     
     # 2. 计算准确率
     accuracy_data = {}
     if not args.no_acc:
-        accuracy_data = run_accuracy_calculation()
+        accuracy_data = run_accuracy_calculation(results_dir)
     
     # 3. 生成Markdown报告
     generate_markdown_report(results_dir, accuracy_data)

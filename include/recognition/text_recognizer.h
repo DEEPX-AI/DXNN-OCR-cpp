@@ -22,13 +22,16 @@ struct RecognizerConfig {
     
     // Model paths for different aspect ratios (default paths - will be resolved to absolute paths)
     std::map<int, std::string> modelPaths = {
-        {3, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/rec_v5_ratio_3.dxnn"},
-        {5, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/rec_v5_ratio_5.dxnn"},
-        {10, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/rec_v5_ratio_10.dxnn"},
-        {15, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/rec_v5_ratio_15.dxnn"},
-        {25, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/rec_v5_ratio_25.dxnn"},
-        {35, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/rec_v5_ratio_35.dxnn"}
+        {3, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/rec_v5_ratio_3.dxnn"},
+        {5, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/rec_v5_ratio_5.dxnn"},
+        {10, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/rec_v5_ratio_10.dxnn"},
+        {15, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/rec_v5_ratio_15.dxnn"},
+        {25, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/rec_v5_ratio_25.dxnn"},
+        {35, std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/rec_v5_ratio_35.dxnn"}
     };
+    
+    // Use mobile model variant (rec_mobile_* instead of rec_v5_*)
+    bool useMobileModel = false;
     
     // Character dictionary path (default - will be resolved to absolute path)
     std::string dictPath = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/ppocrv5_dict.txt";
@@ -38,9 +41,9 @@ struct RecognizerConfig {
     
     void Show() const {
         LOG_INFO("RecognizerConfig:");
-        LOG_INFO("  confThreshold=%.2f", confThreshold);
-        LOG_INFO("  dictPath=%s", dictPath.c_str());
-        LOG_INFO("  Models: %zu ratios", modelPaths.size());
+        LOG_INFO("  confThreshold={:.2f}", confThreshold);
+        LOG_INFO("  dictPath={}", dictPath);
+        LOG_INFO("  Models: {} ratios", modelPaths.size());
     }
 };
 
@@ -71,10 +74,25 @@ public:
     std::pair<std::string, float> Wait(int jobId);
     
     // Register callback for async mode
-    void RegisterCallback(std::function<int(dxrt::TensorPtrs&, void*)> callback);
+    // Callback signature: void(text, confidence, userArg)
+    void RegisterCallback(std::function<void(const std::string&, float, void*)> callback);
     
     // Print model usage statistics
     void PrintModelUsageStats() const;
+    
+    // Get last batch recognition timing details
+    void getLastTimings(double& preprocess, double& inference, double& postprocess) const {
+        preprocess = last_preprocess_time_;
+        inference = last_inference_time_;
+        postprocess = last_postprocess_time_;
+    }
+    
+    // Reset timing counters (useful before starting a new batch)
+    void resetTimings() {
+        last_preprocess_time_ = 0.0;
+        last_inference_time_ = 0.0;
+        last_postprocess_time_ = 0.0;
+    }
     
 private:
     RecognizerConfig config_;
@@ -83,11 +101,22 @@ private:
     // ratio_3, ratio_5, ratio_10, ratio_15, ratio_25, ratio_35
     std::map<int, std::unique_ptr<dxrt::InferenceEngine>> models_;
     
+    // User callback for async mode
+    std::function<void(const std::string&, float, void*)> userCallback_;
+    
+    // Internal callback handler
+    int internalCallback(dxrt::TensorPtrs& outputs, void* userArg);
+    
     // CTC Decoder
     std::unique_ptr<ocr::CTCDecoder> decoder_;
     
     // Model usage statistics
     mutable std::map<int, int> model_usage_;
+    
+    // Timing details of last batch recognition
+    double last_preprocess_time_ = 0.0;
+    double last_inference_time_ = 0.0;
+    double last_postprocess_time_ = 0.0;
     
     // Select appropriate model based on image aspect ratio
     dxrt::InferenceEngine* SelectModel(const cv::Mat& image);

@@ -28,7 +28,7 @@ namespace ocr {
  * @brief Configuration for UVDoc document unwarping
  */
 struct UVDocConfig {
-    std::string modelPath = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/best/UVDoc_pruned_p3.dxnn";  ///< Path to UVDoc model file (default - absolute path)
+    std::string modelPath = std::string(PROJECT_ROOT_DIR) + "/engine/model_files/server/UVDoc_pruned_p3.dxnn";  ///< Path to UVDoc model file (default - absolute path)
     int inputWidth = 488;               ///< Model input width (Python: size=[712,488] -> width=488)
     int inputHeight = 712;              ///< Model input height (Python: size=[712,488] -> height=712)
     bool alignCorners = true;           ///< Use align_corners in grid sampling

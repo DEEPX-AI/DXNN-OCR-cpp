@@ -1,8 +1,8 @@
-add_executable(test_pipeline
-    test_pipeline.cpp
+add_executable(test_pipeline_async
+    test_pipeline_async.cpp
 )
 
-target_link_libraries(test_pipeline
+target_link_libraries(test_pipeline_async
     ocr_pipeline
     ocr_detection
     ocr_recognition
@@ -10,5 +10,5 @@ target_link_libraries(test_pipeline
     ocr_preprocessing
     ${OpenCV_LIBS}
     dxrt
-    stdc++fs  # For std::filesystem
+    stdc++fs
 )
