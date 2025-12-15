@@ -1,0 +1,33 @@
+{
+  "total_images": 20,
+  "successful_images": 20,
+  "failed_images": 0,
+  "success_rate_percent": 100.0,
+  "performance": {
+    "avg_inference_time_ms": 1027.7586698532104,
+    "min_inference_time_ms": 290.13895988464355,
+    "max_inference_time_ms": 3135.761260986328,
+    "std_inference_time_ms": 800.1097738489266,
+    "avg_fps": 1.6919979325030157,
+    "min_fps": 0.3189018285420932,
+    "max_fps": 3.446624336137382,
+    "avg_chars_per_second": 377.48982400248735,
+    "min_chars_per_second": 26.443883324979588,
+    "max_chars_per_second": 675.3335198133286,
+    "total_characters_detected": 9756,
+    "avg_characters_per_image": 487.8
+  },
+  "timing": {
+    "init_time_ms": 1994.1155910491943,
+    "batch_duration_ms": 21004.154920578003,
+    "total_inference_time_ms": 20555.17339706421
+  },
+  "accuracy": {
+    "avg_character_accuracy_percent": 89.75045194844446,
+    "min_character_accuracy_percent": 57.14285714285714,
+    "max_character_accuracy_percent": 100.0,
+    "avg_character_error_rate_percent": 10.249548051555537,
+    "min_character_error_rate_percent": 0.0,
+    "max_character_error_rate_percent": 42.857142857142854
+  }
+}

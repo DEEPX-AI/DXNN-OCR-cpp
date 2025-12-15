@@ -40,7 +40,7 @@ cd ocr_demo
 ### 2. 安装依赖
 ```bash
 # 安装 freetype 依赖（用于多语言文字渲染）
-sudo apt-get install libfreetype6-dev libharfbuzz-dev
+sudo apt-get install libfreetype6-dev libharfbuzz-dev libfmt-dev
 ```
 
 ### 3. 编译与设置

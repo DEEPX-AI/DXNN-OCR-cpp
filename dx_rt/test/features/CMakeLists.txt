@@ -1,7 +1,0 @@
-add_subdirectory(bit_match)
-add_subdirectory(memory)
-add_subdirectory(run_async)
-add_subdirectory(run_async_wait)
-add_subdirectory(run_sync_thread)
-add_subdirectory(ipc_wrapper_mq_client)
-add_subdirectory(ipc_wrapper_mq_server)

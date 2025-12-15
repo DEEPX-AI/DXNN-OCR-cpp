@@ -1,4 +1,0 @@
-YOLOv8X_Seg-YOLOv8X_Seg-1
-DeepLabV3PlusMobileNetV2_2-DeepLabV3PlusMobileNetV2-3
-ShelfNet18_2-ShelfNet18-2
-EfficientNetB7_3-EfficientNetB7-4

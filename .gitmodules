@@ -16,3 +16,6 @@
 [submodule "3rd-party/opencv_contrib"]
 	path = 3rd-party/opencv_contrib
 	url = https://github.com/opencv/opencv_contrib.git
+[submodule "dx_rt"]
+	path = dx_rt
+	url = https://github.com/DEEPX-AI/dx_rt.git

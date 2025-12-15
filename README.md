@@ -40,7 +40,7 @@ cd ocr_demo
 ### 2. Install Dependencies
 ```bash
 # Install freetype dependencies (for multi-language text rendering)
-sudo apt-get install libfreetype6-dev libharfbuzz-dev
+sudo apt-get install libfreetype6-dev libharfbuzz-dev libfmt-dev
 ```
 
 ### 3. Build & Setup

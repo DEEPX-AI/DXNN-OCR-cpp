@@ -1,7 +1,0 @@
-# Classification Models
-YOLOv7_512-YOLOV7-4
-YOLOV5S_9-YOLOV5S-11
-MobileNetV3S_3-MobileNetV3S-4
-DeepLabV3PlusMobileNetV2_2-DeepLabV3PlusMobileNetV2-3
-OCR_DET-POC-5
-TelechipsYOLOV4_1-TelechipsYOLOV4-1

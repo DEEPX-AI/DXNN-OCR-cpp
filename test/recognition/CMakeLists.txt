@@ -21,6 +21,8 @@ target_link_libraries(test_recognizer
         ocr_common
         ${OpenCV_LIBS}
         dxrt
+	spdlog
+	fmt
 )
 
 # Include directories
@@ -47,6 +49,8 @@ target_link_libraries(test_recognizer_mobile
         ocr_common
         ${OpenCV_LIBS}
         dxrt
+	spdlog
+	fmt
 )
 
 # Include directories
