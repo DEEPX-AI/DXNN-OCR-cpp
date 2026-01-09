@@ -146,3 +146,66 @@ OCR/
 python3 benchmark/run_benchmark.py --model server
 python3 benchmark/run_benchmark.py --model mobile
 ```
+
+### 📊 Benchmark Reports (Summary)
+
+**Test Configuration** (from `docs/result/` reports):
+- Model: PP-OCR v5 (DEEPX NPU acceleration)
+- Dataset Size: 20 images
+- Success Rate: 100% (20/20)
+
+**Performance Summary (Server)**:
+| Setup | Avg Inference Time (ms) | Avg FPS | Avg CPS (chars/s) | Avg Character Accuracy |
+|---|---:|---:|---:|---:|
+| Single Card | 135.06 | 7.40 | 243.22 | 96.93% |
+| Dual Cards | 67.89 | 14.73 | 483.88 | 96.93% |
+| Three Cards | 45.55 | 21.96 | 721.23 | 96.93% |
+
+**Performance Summary (Mobile)**:
+| Setup | Avg Inference Time (ms) | Avg FPS | Avg CPS (chars/s) | Avg Character Accuracy |
+|---|---:|---:|---:|---:|
+| Single Card | 82.93 | 12.06 | 378.63 | 89.60% |
+| Dual Cards | 44.24 | 22.61 | 709.83 | 89.60% |
+| Three Cards | 33.00 | 30.30 | 951.57 | 89.60% |
+
+**Detailed Reports**:
+| Setup | Server | Mobile |
+|---|---|---|
+| Single Card | [Report](docs/result/DXNN-OCR_benchmark_report_singlecard_server.md) | [Report](docs/result/DXNN-OCR_benchmark_report_singlecard_mobile.md) |
+| Dual Cards | [Report](docs/result/DXNN-OCR_benchmark_report_dualcards_server.md) | [Report](docs/result/DXNN-OCR_benchmark_report_dualcards_mobile.md) |
+| Three Cards | [Report](docs/result/DXNN-OCR_benchmark_report_threecards_server.md) | [Report](docs/result/DXNN-OCR_benchmark_report_threecards_mobile.md) |
+
+<details>
+<summary><b>🔄 Reproduce Benchmark Results</b></summary>
+
+To reproduce the benchmark results above, run the following commands:
+
+```bash
+# 1. Build the project
+./build.sh
+
+# 2. Download/Setup models
+./setup.sh
+
+# 3. Set DXRT environment variables (Example)
+source ./set_env.sh 3 2 1 3 2 4
+
+# 4. Run benchmark (Server model, 60 runs per image)
+python3 benchmark/run_benchmark.py --model server --runs 60 \
+    --images_dir test/twocode_images
+
+# 5. Run benchmark (Mobile model, 60 runs per image)
+python3 benchmark/run_benchmark.py --model mobile --runs 60 \
+    --images_dir test/twocode_images
+```
+
+**Parameters**:
+| Parameter | Description | Default |
+|---|---|---|
+| `--model` | Model type (`server` / `mobile`) | `server` |
+| `--runs` | Number of runs per image | `3` |
+| `--images_dir` | Test images directory | `images` |
+| `--no-acc` | Skip accuracy calculation | - |
+| `--no-cpp` | Skip C++ benchmark (use existing results) | - |
+
+</details>

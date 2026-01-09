@@ -147,3 +147,66 @@ python3 benchmark/run_benchmark.py --model server
 python3 benchmark/run_benchmark.py --model mobile
 ```
 
+### 📊 基准测试报告（汇总）
+
+**测试配置**（来源：`docs/result/` 报告）：
+- 模型：PP-OCR v5（DEEPX NPU 加速）
+- 数据集规模：20 张图片
+- 成功率：100%（20/20）
+
+**性能汇总（Server）**：
+| 配置 | 平均推理耗时 (ms) | 平均 FPS | 平均 CPS（字符/秒） | 平均字符准确率 |
+|---|---:|---:|---:|---:|
+| 单卡 | 135.06 | 7.40 | 243.22 | 96.93% |
+| 双卡 | 67.89 | 14.73 | 483.88 | 96.93% |
+| 三卡 | 45.55 | 21.96 | 721.23 | 96.93% |
+
+**性能汇总（Mobile）**：
+| 配置 | 平均推理耗时 (ms) | 平均 FPS | 平均 CPS（字符/秒） | 平均字符准确率 |
+|---|---:|---:|---:|---:|
+| 单卡 | 82.93 | 12.06 | 378.63 | 89.60% |
+| 双卡 | 44.24 | 22.61 | 709.83 | 89.60% |
+| 三卡 | 33.00 | 30.30 | 951.57 | 89.60% |
+
+**详细报告**：
+| 配置 | Server | Mobile |
+|---|---|---|
+| 单卡 | [Report](docs/result/DXNN-OCR_benchmark_report_singlecard_server.md) | [Report](docs/result/DXNN-OCR_benchmark_report_singlecard_mobile.md) |
+| 双卡 | [Report](docs/result/DXNN-OCR_benchmark_report_dualcards_server.md) | [Report](docs/result/DXNN-OCR_benchmark_report_dualcards_mobile.md) |
+| 三卡 | [Report](docs/result/DXNN-OCR_benchmark_report_threecards_server.md) | [Report](docs/result/DXNN-OCR_benchmark_report_threecards_mobile.md) |
+
+<details>
+<summary><b>🔄 复现基准测试结果</b></summary>
+
+运行以下命令复现上述基准测试结果：
+
+```bash
+# 1. 编译项目
+./build.sh
+
+# 2. 下载/设置模型
+./setup.sh
+
+# 3. 设置 DeepX NPU 环境变量
+source ./set_env.sh 3 2 1 3 2 4
+
+# 4. 运行基准测试（Server 模型，每张图片运行 60 次）
+python3 benchmark/run_benchmark.py --model server --runs 60 \
+    --images_dir test/twocode_images
+
+# 5. 运行基准测试（Mobile 模型，每张图片运行 60 次）
+python3 benchmark/run_benchmark.py --model mobile --runs 60 \
+    --images_dir test/twocode_images
+```
+
+**参数说明**：
+| 参数 | 说明 | 默认值 |
+|---|---|---|
+| `--model` | 模型类型（`server` / `mobile`） | `server` |
+| `--runs` | 每张图片运行次数 | `3` |
+| `--images_dir` | 测试图片目录 | `images` |
+| `--no-acc` | 跳过准确率计算 | - |
+| `--no-cpp` | 跳过 C++ 基准测试（使用已有结果） | - |
+
+</details>
+

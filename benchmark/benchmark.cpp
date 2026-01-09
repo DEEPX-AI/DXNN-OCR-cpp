@@ -41,14 +41,27 @@ int main(int argc, char** argv) {
         }
     }
     
+    std::string projectRoot = PROJECT_ROOT_DIR;
+    
+    // 第四个参数：images目录（可选，默认为 images）
+    std::string imagesDir = projectRoot + "/images";
+    if (argc > 4) {
+        std::string imagesDirArg = argv[4];
+        if (!imagesDirArg.empty()) {
+            // 如果是相对路径，则相对于项目根目录
+            if (imagesDirArg[0] != '/') {
+                imagesDir = projectRoot + "/" + imagesDirArg;
+            } else {
+                imagesDir = imagesDirArg;
+            }
+        }
+    }
+    
     LOG_INFO("========================================");
     LOG_INFO("DeepX OCR - Benchmark (Async Mode)");
     LOG_INFO("========================================\n");
     LOG_INFO("Model Type: {}", modelType);
     LOG_INFO("Use UVDoc: {}", useUVDoc ? "Yes" : "No");
-    
-    std::string projectRoot = PROJECT_ROOT_DIR;
-    std::string imagesDir = projectRoot + "/images";
     std::string outputDir = projectRoot + "/benchmark/results_" + modelType;
     std::string visDir = projectRoot + "/benchmark/vis_" + modelType;
     
