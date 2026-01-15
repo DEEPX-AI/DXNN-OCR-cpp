@@ -106,6 +106,36 @@ add_subdirectory(test)
 # ========================================
 add_subdirectory(benchmark)
 
+# ========================================
+# Unit Tests (Google Test)
+# ========================================
+# Note: Using DXOCR_BUILD_TESTS to avoid conflict with OpenCV's BUILD_TESTS
+option(DXOCR_BUILD_TESTS "Build unit tests with Google Test" ON)
+if(DXOCR_BUILD_TESTS)
+    message(STATUS "Building unit tests with Google Test")
+    enable_testing()
+    
+    # Prevent GoogleTest from overriding our compiler/linker options
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    
+    # Add Google Test
+    add_subdirectory(3rd-party/googletest EXCLUDE_FROM_ALL)
+    
+    # Add server tests
+    if(BUILD_SERVER)
+        add_subdirectory(server/tests)
+    endif()
+endif()
+
+# ========================================
+# API Server Benchmark
+# ========================================
+option(BUILD_API_BENCHMARK "Build API server benchmark tool" ON)
+if(BUILD_API_BENCHMARK)
+    message(STATUS "Building API server benchmark tool")
+    add_subdirectory(server/benchmark)
+endif()
+
 
 # Build information
 message(STATUS "========================================")

@@ -13,15 +13,14 @@ using namespace ocr_server;
 
 /**
  * @brief 加载OCR Pipeline配置
+ * @param useMobileModel 是否使用 mobile 模型
  */
-ocr::OCRPipelineConfig LoadDefaultConfig() {
+ocr::OCRPipelineConfig LoadPipelineConfig(bool useMobileModel) {
     ocr::OCRPipelineConfig config;
     
-    // 注意：实际的配置结构与之前假设的不同
-    // 这里只设置最基本的配置，其他使用默认值
-    
-    // Detection配置
-    // config.detectorConfig 使用默认值
+    // 设置模型类型
+    config.detectorConfig.useMobileModel = useMobileModel;
+    config.recognizerConfig.useMobileModel = useMobileModel;
     
     // Document Preprocessing配置
     config.docPreprocessingConfig.useOrientation = true;
@@ -32,6 +31,12 @@ ocr::OCRPipelineConfig LoadDefaultConfig() {
     config.useClassification = true;
     config.enableVisualization = true;
     config.sortResults = true;
+    
+    if (useMobileModel) {
+        LOG_INFO("Using MOBILE models");
+    } else {
+        LOG_INFO("Using SERVER models");
+    }
     
     return config;
 }
@@ -83,12 +88,14 @@ int main(int argc, char* argv[]) {
     int port = 8080;
     int threads = 4;
     std::string vis_dir = "output/vis";
+    std::string model_type = "server";
     
     // 定义长选项
     static struct option long_options[] = {
         {"port",     required_argument, 0, 'p'},
         {"threads",  required_argument, 0, 't'},
         {"vis-dir",  required_argument, 0, 'v'},
+        {"model",    required_argument, 0, 'm'},
         {"help",     no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
@@ -96,7 +103,7 @@ int main(int argc, char* argv[]) {
     // 解析命令行参数
     int opt;
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "p:t:v:h", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "p:t:v:m:h", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'p':
                 port = std::stoi(optarg);
@@ -107,12 +114,20 @@ int main(int argc, char* argv[]) {
             case 'v':
                 vis_dir = optarg;
                 break;
+            case 'm':
+                model_type = optarg;
+                if (model_type != "server" && model_type != "mobile") {
+                    std::cerr << "Error: model must be 'server' or 'mobile'\n";
+                    return 1;
+                }
+                break;
             case 'h':
                 std::cout << "Usage: " << argv[0] << " [options]\n"
                           << "Options:\n"
                           << "  -p, --port <port>        Server port (default: 8080)\n"
                           << "  -t, --threads <num>      Number of threads (default: 4)\n"
                           << "  -v, --vis-dir <path>     Visualization output directory (default: output/vis)\n"
+                          << "  -m, --model <type>       Model type: 'server' or 'mobile' (default: server)\n"
                           << "  -h, --help               Show this help message\n";
                 return 0;
             default:
@@ -127,7 +142,8 @@ int main(int argc, char* argv[]) {
     
     // 加载OCR Pipeline配置
     LOG_INFO("Loading OCR Pipeline configuration...");
-    auto pipeline_config = LoadDefaultConfig();
+    bool useMobileModel = (model_type == "mobile");
+    auto pipeline_config = LoadPipelineConfig(useMobileModel);
     pipeline_config.Show();
     
     // 创建OCR Handler

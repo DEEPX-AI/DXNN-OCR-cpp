@@ -7,6 +7,11 @@
 #include <opencv2/opencv.hpp>
 #include <memory>
 #include <string>
+#include <map>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <atomic>
 
 using json = nlohmann::json;
 
@@ -21,7 +26,8 @@ struct OCRRequest {
     bool useDocOrientationClassify = false; // 文档方向矫正
     bool useDocUnwarping = false;           // 图片扭曲矫正
     bool useTextlineOrientation = false;    // 文本行方向矫正
-    int textDetLimitSideLen = 64;           // 图像长边限制
+    int textDetLimitSideLen = 64;           // 图像边长限制（接收但不实际使用）
+    std::string textDetLimitType = "min";   // 边长限制类型: "min" 或 "max"（接收但不实际使用）
     double textDetThresh = 0.3;             // 检测像素阈值
     double textDetBoxThresh = 0.6;          // 检测框阈值
     double textDetUnclipRatio = 1.5;        // 检测扩张系数
@@ -79,6 +85,23 @@ private:
     ocr::OCRPipelineConfig base_config_;               // 基础配置
     std::string vis_output_dir_;                       // 可视化输出目录
     std::string vis_url_prefix_;                       // 可视化URL前缀
+    
+    // 并发结果存储（解决多请求结果错位问题）
+    struct TaskResult {
+        std::vector<ocr::PipelineOCRResult> results;
+        cv::Mat processedImage;
+    };
+    std::map<int64_t, TaskResult> result_store_;       // task_id -> 结果
+    std::mutex result_mutex_;                           // 保护 result_store_
+    std::condition_variable result_cv_;                 // 通知等待的请求
+    std::thread result_collector_thread_;               // 后台结果收集线程
+    std::atomic<bool> collector_running_{false};        // 收集线程运行标志
+    
+    void StartResultCollector();                        // 启动结果收集线程
+    void StopResultCollector();                         // 停止结果收集线程
+    void ResultCollectorLoop();                         // 结果收集循环
+    bool WaitForResult(int64_t task_id, std::vector<ocr::PipelineOCRResult>& results, 
+                       cv::Mat& processedImage, int timeout_ms = 10000);
 };
 
 } // namespace ocr_server

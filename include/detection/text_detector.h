@@ -25,6 +25,11 @@ struct DetectionContext {
     cv::Mat originalImage;
     cv::Mat inputImage; // Keep input data alive
     double preprocess_time; // Pass preprocess time to callback
+    
+    // Per-task detection parameters (覆盖默认值)
+    float thresh = 0.3f;          // 二值化阈值
+    float boxThresh = 0.6f;       // 检测框置信度阈值
+    float unclipRatio = 1.5f;     // 检测扩张系数
 };
 
 using DetectionCallback = std::function<void(std::vector<DeepXOCR::TextBox> boxes, int64_t taskId, cv::Mat image, double preprocess_time, double inference_time, double postprocess_time)>;
@@ -108,16 +113,38 @@ public:
     cv::Mat preprocessAsync(const cv::Mat& image, int target_size, int& resized_h, int& resized_w);
 
     /**
-     * @brief Submit async inference task
+     * @brief Submit async inference task（使用默认检测参数）
      * @param input Preprocessed input data
-     * @param height Original image height (for model selection)
-     * @param width Original image width (for model selection)
+     * @param orig_h Original image height
+     * @param orig_w Original image width
+     * @param resized_h Resized image height
+     * @param resized_w Resized image width
      * @param taskId Task ID for tracking
      * @param originalImage Original image for next stage
      * @param preprocess_time Time taken for preprocessing
      * @return Job ID
      */
-    int runAsync(const cv::Mat& input, int orig_h, int orig_w, int resized_h, int resized_w, int64_t taskId, const cv::Mat& originalImage, double preprocess_time);
+    int runAsync(const cv::Mat& input, int orig_h, int orig_w, int resized_h, int resized_w, 
+                 int64_t taskId, const cv::Mat& originalImage, double preprocess_time);
+    
+    /**
+     * @brief Submit async inference task（支持 per-task 检测参数）
+     * @param input Preprocessed input data
+     * @param orig_h Original image height
+     * @param orig_w Original image width
+     * @param resized_h Resized image height
+     * @param resized_w Resized image width
+     * @param taskId Task ID for tracking
+     * @param originalImage Original image for next stage
+     * @param preprocess_time Time taken for preprocessing
+     * @param thresh 二值化阈值
+     * @param boxThresh 检测框置信度阈值
+     * @param unclipRatio 检测扩张系数
+     * @return Job ID
+     */
+    int runAsync(const cv::Mat& input, int orig_h, int orig_w, int resized_h, int resized_w, 
+                 int64_t taskId, const cv::Mat& originalImage, double preprocess_time,
+                 float thresh, float boxThresh, float unclipRatio);
 
     /**
      * @brief Get last detection timing details

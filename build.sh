@@ -1,17 +1,19 @@
 #!/bin/bash
-# Build script - Usage: ./build.sh [release|debug] [clean]
+# Build script - Usage: ./build.sh [release|debug] [clean] [test]
 
 set -e
 
 BUILD_TYPE="Release"
 CLEAN_BUILD=false
+BUILD_TESTS=false
 
 for arg in "$@"; do
     case $arg in
         clean) CLEAN_BUILD=true ;;
         debug) BUILD_TYPE="Debug" ;;
         release) BUILD_TYPE="Release" ;;
-        *) echo "Usage: ./build.sh [release|debug] [clean]"; exit 1 ;;
+        test) BUILD_TESTS=true ;;
+        *) echo "Usage: ./build.sh [release|debug] [clean] [test]"; exit 1 ;;
     esac
 done
 
@@ -31,6 +33,14 @@ if [ "${BUILD_OPENCV_FROM_SOURCE}" = "OFF" ]; then
     echo "Using system OpenCV"
 fi
 
+# Test options (using DXOCR_BUILD_TESTS to avoid conflict with OpenCV)
+if [ "$BUILD_TESTS" = true ]; then
+    CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DDXOCR_BUILD_TESTS=ON"
+    echo "Building with unit tests enabled"
+else
+    CMAKE_EXTRA_ARGS="${CMAKE_EXTRA_ARGS} -DDXOCR_BUILD_TESTS=OFF"
+fi
+
 if [ "$BUILD_TYPE" = "Debug" ]; then
     cmake .. -DCMAKE_BUILD_TYPE=${BUILD_TYPE} ${CMAKE_EXTRA_ARGS}
 else
@@ -40,4 +50,17 @@ make -j$(nproc)
 make install
 
 echo "✅ Build complete: ${BUILD_DIR}/bin"
+
+# Run tests if enabled
+if [ "$BUILD_TESTS" = true ]; then
+    echo ""
+    echo "========================================="
+    echo "Running unit tests..."
+    echo "========================================="
+    if [ -f "bin/server_tests" ]; then
+        ./bin/server_tests --gtest_color=yes
+    else
+        echo "Warning: server_tests not found"
+    fi
+fi
 

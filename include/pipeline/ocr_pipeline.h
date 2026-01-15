@@ -14,6 +14,8 @@
 #include <memory>
 #include <thread>
 #include <atomic>
+#include <unordered_map>
+#include <mutex>
 
 namespace ocr {
 
@@ -46,6 +48,32 @@ struct OCRPipelineConfig {
     bool sortResults = true;          // 是否对结果排序（从上到下，从左到右）
     
     void Show() const;
+};
+
+/**
+ * @brief OCR任务级别配置（per-request参数）
+ * 
+ * 用于在每个任务中传递独立的处理参数，实现参数与Pipeline初始化的解耦。
+ * 对应百度 PP-OCRv5 API 的请求参数。
+ */
+struct OCRTaskConfig {
+    // 文档预处理
+    bool useDocOrientationClassify = false;  // 文档方向矫正（0°/90°/180°/270°）
+    bool useDocUnwarping = false;            // 图片扭曲矫正（弯曲、褶皱）
+    
+    // 文本行方向分类
+    bool useTextlineOrientation = false;     // 文本行方向分类（0°/180°）
+    
+    // 检测参数
+    float textDetThresh = 0.3f;              // 检测像素阈值
+    float textDetBoxThresh = 0.6f;           // 检测框阈值
+    float textDetUnclipRatio = 1.5f;         // 检测扩张系数
+    
+    // 识别参数
+    float textRecScoreThresh = 0.0f;         // 识别置信度阈值
+    
+    // 获取默认配置
+    static OCRTaskConfig Default() { return {}; }
 };
 
 /**
@@ -156,12 +184,21 @@ public:
     void stop();
 
     /**
-     * @brief 提交异步任务
+     * @brief 提交异步任务（使用默认配置）
      * @param image 输入图片
      * @param id 任务ID（用于匹配结果）
      * @return true表示提交成功（队列未满），false表示队列已满
      */
     bool pushTask(const cv::Mat& image, int64_t id);
+    
+    /**
+     * @brief 提交异步任务（使用自定义配置）
+     * @param image 输入图片
+     * @param id 任务ID（用于匹配结果）
+     * @param config 任务级别配置（per-request参数）
+     * @return true表示提交成功（队列未满），false表示队列已满
+     */
+    bool pushTask(const cv::Mat& image, int64_t id, const OCRTaskConfig& config);
 
     /**
      * @brief 获取异步结果
@@ -190,18 +227,21 @@ private:
     struct DetectionTask {
         cv::Mat image;
         int64_t id;
+        OCRTaskConfig config;  // 任务级别配置
     };
 
     struct RecognitionTask {
         cv::Mat image; // 预处理后的图片
         std::vector<TextBox> boxes;
         int64_t id;
+        OCRTaskConfig config;  // 任务级别配置
     };
 
     struct OutputTask {
         std::vector<PipelineOCRResult> results;
         cv::Mat processedImage;  // UVDoc 处理后的图像（用于可视化）
         int64_t id;
+        OCRTaskConfig config;  // 任务级别配置（用于结果过滤）
     };
 
     // Context for tracking async recognition of an entire image
@@ -213,9 +253,10 @@ private:
         std::vector<PipelineOCRResult> results;            // Results (one per crop)
         std::atomic<int> pendingCount{0};                  // Number of pending recognitions
         std::mutex resultMutex;                            // Protect results vector
+        OCRTaskConfig config;                              // 任务级别配置
         
-        RecognitionTaskContext(int64_t id, size_t cropCount)
-            : taskId(id), crops(cropCount), boxPoints(cropCount), results(cropCount) {
+        RecognitionTaskContext(int64_t id, size_t cropCount, const OCRTaskConfig& cfg = OCRTaskConfig::Default())
+            : taskId(id), crops(cropCount), boxPoints(cropCount), results(cropCount), config(cfg) {
             pendingCount.store(static_cast<int>(cropCount));
         }
     };
@@ -265,6 +306,10 @@ private:
     // Stage executor: thread pool for dispatching callback work
     // Similar to Python's ThreadPoolExecutor + _dispatch_stage pattern
     std::unique_ptr<ThreadPool> stageExecutor_;
+    
+    // Pending task configs map (for passing config from detection to recognition)
+    std::unordered_map<int64_t, OCRTaskConfig> pendingTaskConfigs_;
+    std::mutex pendingTaskConfigsMutex_;
     
 private:
     OCRPipelineConfig config_;

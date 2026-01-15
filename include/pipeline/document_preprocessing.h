@@ -94,11 +94,19 @@ public:
     bool Initialize();
     
     /**
-     * @brief 处理图像（完整的预处理流程）
+     * @brief 处理图像（完整的预处理流程，使用构造时的配置）
      * @param image 输入图像
      * @return 预处理结果（包含处理后的图像和统计信息）
      */
     DocumentPreprocessingResult Process(const cv::Mat& image);
+    
+    /**
+     * @brief 处理图像（使用动态配置，支持 per-task 参数）
+     * @param image 输入图像
+     * @param dynamicConfig 动态配置（覆盖构造时的配置）
+     * @return 预处理结果（包含处理后的图像和统计信息）
+     */
+    DocumentPreprocessingResult Process(const cv::Mat& image, const DocumentPreprocessingConfig& dynamicConfig);
     
     /**
      * @brief 仅执行 Stage 1: Orientation Correction

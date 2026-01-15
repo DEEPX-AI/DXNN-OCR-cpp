@@ -87,6 +87,12 @@ bool DocumentPreprocessingPipeline::Initialize() {
 }
 
 DocumentPreprocessingResult DocumentPreprocessingPipeline::Process(const cv::Mat& image) {
+    // 使用构造时的配置
+    return Process(image, config_);
+}
+
+DocumentPreprocessingResult DocumentPreprocessingPipeline::Process(const cv::Mat& image, 
+                                                                    const DocumentPreprocessingConfig& dynamicConfig) {
     DocumentPreprocessingResult result;
     result.success = false;
     
@@ -102,16 +108,62 @@ DocumentPreprocessingResult DocumentPreprocessingPipeline::Process(const cv::Mat
     
     auto totalStart = std::chrono::high_resolution_clock::now();
     
-    LOG_DEBUG("Doc preprocessing: {}x{}", image.cols, image.rows);
+    LOG_DEBUG("Doc preprocessing: {}x{}, useOri={}, useUnwarp={}", 
+              image.cols, image.rows, dynamicConfig.useOrientation, dynamicConfig.useUnwarping);
     
     // 使用浅拷贝，避免不必要的内存复制
     cv::Mat currentImage = image;
     
-    // Stage 1: Document Orientation Correction
-    currentImage = ProcessOrientation(currentImage, result);
+    // Stage 1: Document Orientation Correction (根据动态配置)
+    if (dynamicConfig.useOrientation && orientationClassifier_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        // 检测文档方向
+        auto orientationResult = orientationClassifier_->Classify(image);
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        result.orientationTime = std::chrono::duration<float, std::milli>(end - start).count();
+        
+        result.detectedAngle = orientationResult.angle;
+        result.orientationConfidence = orientationResult.confidence;
+        
+        LOG_DEBUG("Orientation: angle={}°, conf={:.4f}, time={:.2f}ms", 
+                  orientationResult.angle, orientationResult.confidence, result.orientationTime);
+        
+        // 应用旋转
+        if (orientationResult.angle != 0) {
+            currentImage = DocumentOrientationClassifier::RotateImage(image, orientationResult.angle);
+            result.orientationApplied = true;
+        } else {
+            result.orientationApplied = false;
+        }
+    } else {
+        result.orientationApplied = false;
+        result.orientationTime = 0.0f;
+    }
     
-    // Stage 2: Document Unwarping (UVDoc)
-    currentImage = ProcessUnwarping(currentImage, result);
+    // Stage 2: Document Unwarping (UVDoc) (根据动态配置)
+    if (dynamicConfig.useUnwarping && uvdocProcessor_) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        // 执行文档畸变校正
+        auto uvdocResult = uvdocProcessor_->Process(currentImage);
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        result.unwarpingTime = std::chrono::duration<float, std::milli>(end - start).count();
+        
+        if (uvdocResult.success && !uvdocResult.correctedImage.empty()) {
+            currentImage = uvdocResult.correctedImage;
+            result.unwarpingApplied = true;
+            LOG_DEBUG("UVDoc unwarp: success, time={:.2f}ms", result.unwarpingTime);
+        } else {
+            result.unwarpingApplied = false;
+            LOG_WARN("UVDoc unwarp failed");
+        }
+    } else {
+        result.unwarpingApplied = false;
+        result.unwarpingTime = 0.0f;
+    }
     
     auto totalEnd = std::chrono::high_resolution_clock::now();
     result.totalTime = std::chrono::duration<float, std::milli>(totalEnd - totalStart).count();

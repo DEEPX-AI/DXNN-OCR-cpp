@@ -1,0 +1,182 @@
+{
+    "total_images": 20,
+    "successful_images": 20,
+    "failed_images": 0,
+    "success_rate": 100.0,
+    "total_time_ms": 10569.879233837128,
+    "total_chars": 9790,
+    "avg_latency_ms": 528.4939616918564,
+    "avg_fps": 1.892169206245463,
+    "avg_cps": 926.2168264571541,
+    "avg_accuracy": 91.55047337206912,
+    "image_results": [
+        {
+            "filename": "image_1.png",
+            "latency_ms": 408.3388328552246,
+            "fps": 2.448946608892687,
+            "cps": 19.591572871141494,
+            "char_count": 8,
+            "accuracy": 72.72727272727273
+        },
+        {
+            "filename": "image_10.png",
+            "latency_ms": 425.47558546066284,
+            "fps": 2.3503111204778038,
+            "cps": 991.8312928416332,
+            "char_count": 422,
+            "accuracy": 99.88137603795967
+        },
+        {
+            "filename": "image_11.png",
+            "latency_ms": 835.7654213905334,
+            "fps": 1.1965079846641844,
+            "cps": 1131.8965534923184,
+            "char_count": 946,
+            "accuracy": 99.36642027455122
+        },
+        {
+            "filename": "image_12.png",
+            "latency_ms": 736.5883350372314,
+            "fps": 1.3576104214974491,
+            "cps": 1153.9688582728318,
+            "char_count": 850,
+            "accuracy": 83.39529120198264
+        },
+        {
+            "filename": "image_13.png",
+            "latency_ms": 311.1716032028198,
+            "fps": 3.213660853712946,
+            "cps": 212.10161634505442,
+            "char_count": 66,
+            "accuracy": 100.0
+        },
+        {
+            "filename": "image_14.png",
+            "latency_ms": 683.4063410758972,
+            "fps": 1.4632582987533953,
+            "cps": 1044.7664253099242,
+            "char_count": 714,
+            "accuracy": 98.17671809256662
+        },
+        {
+            "filename": "image_15.png",
+            "latency_ms": 1114.3027067184448,
+            "fps": 0.8974222120889758,
+            "cps": 1375.7482511324,
+            "char_count": 1533,
+            "accuracy": 99.73924380704041
+        },
+        {
+            "filename": "image_16.png",
+            "latency_ms": 349.93321895599365,
+            "fps": 2.8576881125588605,
+            "cps": 160.0305343032962,
+            "char_count": 56,
+            "accuracy": 94.44444444444444
+        },
+        {
+            "filename": "image_17.png",
+            "latency_ms": 240.88035821914673,
+            "fps": 4.151438529040321,
+            "cps": 361.1751520265079,
+            "char_count": 87,
+            "accuracy": 100.0
+        },
+        {
+            "filename": "image_18.png",
+            "latency_ms": 527.6277661323547,
+            "fps": 1.8952755411836142,
+            "cps": 1192.1283154044934,
+            "char_count": 629,
+            "accuracy": 99.84101748807632
+        },
+        {
+            "filename": "image_19.png",
+            "latency_ms": 582.7187180519104,
+            "fps": 1.7160938357070536,
+            "cps": 1225.2909986948362,
+            "char_count": 714,
+            "accuracy": 97.46121297602257
+        },
+        {
+            "filename": "image_2.png",
+            "latency_ms": 389.2243027687073,
+            "fps": 2.5692126439346215,
+            "cps": 136.16827012853494,
+            "char_count": 53,
+            "accuracy": 70.37037037037037
+        },
+        {
+            "filename": "image_20.png",
+            "latency_ms": 547.7767467498779,
+            "fps": 1.825561245403893,
+            "cps": 962.0707763278516,
+            "char_count": 527,
+            "accuracy": 99.0530303030303
+        },
+        {
+            "filename": "image_3.png",
+            "latency_ms": 362.4768257141113,
+            "fps": 2.7587970569702263,
+            "cps": 68.96992642425566,
+            "char_count": 25,
+            "accuracy": 65.0
+        },
+        {
+            "filename": "image_4.png",
+            "latency_ms": 316.5291905403137,
+            "fps": 3.1592662853400824,
+            "cps": 224.30790625914582,
+            "char_count": 71,
+            "accuracy": 70.76923076923077
+        },
+        {
+            "filename": "image_5.png",
+            "latency_ms": 297.6511001586914,
+            "fps": 3.3596381786153464,
+            "cps": 67.19276357230693,
+            "char_count": 20,
+            "accuracy": 97.5609756097561
+        },
+        {
+            "filename": "image_6.png",
+            "latency_ms": 867.7812814712524,
+            "fps": 1.1523641052784424,
+            "cps": 1538.4060805467207,
+            "char_count": 1335,
+            "accuracy": 97.74943735933984
+        },
+        {
+            "filename": "image_7.png",
+            "latency_ms": 316.76779985427856,
+            "fps": 3.1568865284287924,
+            "cps": 1250.1270652578019,
+            "char_count": 396,
+            "accuracy": 92.34828496042216
+        },
+        {
+            "filename": "image_8.png",
+            "latency_ms": 541.1420226097107,
+            "fps": 1.8479437157317806,
+            "cps": 855.5979403838144,
+            "char_count": 463,
+            "accuracy": 96.36963696369637
+        },
+        {
+            "filename": "image_9.png",
+            "latency_ms": 714.3210768699646,
+            "fps": 1.3999306927661055,
+            "cps": 1224.9393561703423,
+            "char_count": 875,
+            "accuracy": 96.75550405561994
+        }
+    ],
+    "runs_per_image": 20,
+    "concurrency": 1,
+    "min_latency_ms": 240.88035821914673,
+    "max_latency_ms": 1114.3027067184448,
+    "p50_latency_ms": 527.6277661323547,
+    "p90_latency_ms": 867.7812814712524,
+    "p99_latency_ms": 1114.3027067184448,
+    "qps": 1.892169206245463
+}

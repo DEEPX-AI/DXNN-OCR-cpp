@@ -21,6 +21,7 @@ OCRRequest OCRRequest::FromJson(const json& j) {
     if (j.contains("useDocUnwarping")) req.useDocUnwarping = j["useDocUnwarping"].get<bool>();
     if (j.contains("useTextlineOrientation")) req.useTextlineOrientation = j["useTextlineOrientation"].get<bool>();
     if (j.contains("textDetLimitSideLen")) req.textDetLimitSideLen = j["textDetLimitSideLen"].get<int>();
+    if (j.contains("textDetLimitType")) req.textDetLimitType = j["textDetLimitType"].get<std::string>();
     if (j.contains("textDetThresh")) req.textDetThresh = j["textDetThresh"].get<double>();
     if (j.contains("textDetBoxThresh")) req.textDetBoxThresh = j["textDetBoxThresh"].get<double>();
     if (j.contains("textDetUnclipRatio")) req.textDetUnclipRatio = j["textDetUnclipRatio"].get<double>();
@@ -43,12 +44,16 @@ bool OCRRequest::Validate(std::string& error_msg) const {
         return false;
     }
     
-    // 检查数值范围
-    if (textDetLimitSideLen < 16 || textDetLimitSideLen > 4096) {
-        error_msg = "textDetLimitSideLen must be in range [16, 4096]";
-        return false;
+    // textDetLimitSideLen 和 textDetLimitType: 接收但不实际使用，只做基本验证
+    // 不会因为这两个参数的值而拒绝请求
+    if (textDetLimitSideLen < 1) {
+        LOG_WARN("textDetLimitSideLen={} is too small, will use default model selection", textDetLimitSideLen);
+    }
+    if (textDetLimitType != "min" && textDetLimitType != "max") {
+        LOG_WARN("textDetLimitType='{}' is invalid (should be 'min' or 'max'), ignored", textDetLimitType);
     }
     
+    // 检查实际使用的参数范围
     if (textDetThresh < 0.0 || textDetThresh > 1.0) {
         error_msg = "textDetThresh must be in range [0.0, 1.0]";
         return false;
@@ -85,6 +90,69 @@ OCRHandler::OCRHandler(
     // 创建基础Pipeline实例（会被每次请求的配置覆盖）
     base_pipeline_ = std::make_shared<ocr::OCRPipeline>(base_config_);
     LOG_INFO("OCRHandler initialized");
+}
+
+void OCRHandler::StartResultCollector() {
+    if (collector_running_) return;
+    collector_running_ = true;
+    result_collector_thread_ = std::thread(&OCRHandler::ResultCollectorLoop, this);
+    LOG_INFO("Result collector thread started");
+}
+
+void OCRHandler::StopResultCollector() {
+    if (!collector_running_) return;
+    collector_running_ = false;
+    if (result_collector_thread_.joinable()) {
+        result_collector_thread_.join();
+    }
+    LOG_INFO("Result collector thread stopped");
+}
+
+void OCRHandler::ResultCollectorLoop() {
+    while (collector_running_) {
+        std::vector<ocr::PipelineOCRResult> results;
+        int64_t result_id;
+        cv::Mat processed_image;
+        
+        if (base_pipeline_->getResult(results, result_id, &processed_image)) {
+            // #region agent log
+            LOG_INFO("[COLLECTOR] Got result for task_id={}, storing in map", result_id);
+            // #endregion
+            
+            {
+                std::lock_guard<std::mutex> lock(result_mutex_);
+                result_store_[result_id] = TaskResult{std::move(results), std::move(processed_image)};
+            }
+            result_cv_.notify_all();  // 通知所有等待的请求
+        }
+    }
+}
+
+bool OCRHandler::WaitForResult(int64_t task_id, std::vector<ocr::PipelineOCRResult>& results, 
+                                cv::Mat& processedImage, int timeout_ms) {
+    std::unique_lock<std::mutex> lock(result_mutex_);
+    
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    
+    while (true) {
+        auto it = result_store_.find(task_id);
+        if (it != result_store_.end()) {
+            // 找到结果
+            results = std::move(it->second.results);
+            processedImage = std::move(it->second.processedImage);
+            result_store_.erase(it);
+            // #region agent log
+            LOG_INFO("[WAIT] Found result for task_id={}", task_id);
+            // #endregion
+            return true;
+        }
+        
+        // 等待通知或超时
+        if (result_cv_.wait_until(lock, deadline) == std::cv_status::timeout) {
+            LOG_WARN("[WAIT] Timeout waiting for task_id={}", task_id);
+            return false;
+        }
+    }
 }
 
 ocr::OCRPipelineConfig OCRHandler::CreatePipelineConfig(const OCRRequest& request) const {
@@ -171,13 +239,35 @@ int OCRHandler::HandleRequest(const OCRRequest& request, json& response_json) {
             }
             base_pipeline_->start();  // 启动后保持运行
             LOG_INFO("Base pipeline initialized and started");
+            
+            // 启动结果收集线程（解决并发结果错位问题）
+            StartResultCollector();
         });
         
-        // 提交任务到共享 pipeline
+        // 从 OCRRequest 构建 OCRTaskConfig（实现参数解耦）
+        ocr::OCRTaskConfig taskConfig;
+        taskConfig.useDocOrientationClassify = request.useDocOrientationClassify;
+        taskConfig.useDocUnwarping = request.useDocUnwarping;
+        taskConfig.useTextlineOrientation = request.useTextlineOrientation;
+        taskConfig.textDetThresh = static_cast<float>(request.textDetThresh);
+        taskConfig.textDetBoxThresh = static_cast<float>(request.textDetBoxThresh);
+        taskConfig.textDetUnclipRatio = static_cast<float>(request.textDetUnclipRatio);
+        taskConfig.textRecScoreThresh = static_cast<float>(request.textRecScoreThresh);
+        
+        LOG_INFO("OCRTaskConfig: docOri={}, docUnwarp={}, textlineOri={}, detThresh={:.2f}, boxThresh={:.2f}, unclipRatio={:.2f}, recThresh={:.2f}",
+                 taskConfig.useDocOrientationClassify, taskConfig.useDocUnwarping,
+                 taskConfig.useTextlineOrientation, taskConfig.textDetThresh,
+                 taskConfig.textDetBoxThresh, taskConfig.textDetUnclipRatio, taskConfig.textRecScoreThresh);
+        
+        // 提交任务到共享 pipeline（使用新的带配置的接口）
         static std::atomic<int64_t> task_counter{0};
         int64_t task_id = ++task_counter;
         
-        if (!base_pipeline_->pushTask(image, task_id)) {
+        // #region agent log
+        LOG_INFO("[DEBUG] Pushing task_id={}", task_id);
+        // #endregion
+        
+        if (!base_pipeline_->pushTask(image, task_id, taskConfig)) {
             LOG_ERROR("Failed to push task to pipeline");
 
             response_json = JsonResponseBuilder::BuildErrorResponse(
@@ -185,25 +275,14 @@ int OCRHandler::HandleRequest(const OCRRequest& request, json& response_json) {
             return 503;
         }
         
-        // 获取结果 - 循环重试多次
+        // 使用 WaitForResult 等待正确的结果（支持并发）
         std::vector<ocr::PipelineOCRResult> results;
-        int64_t result_id;
         cv::Mat processed_image;
         
-        LOG_INFO("Waiting for OCR results...");
-        bool got_result = false;
-        const int max_retries = 100;  // 最多重试100次，每次等待100ms，总共最多10秒
-        for (int i = 0; i < max_retries; ++i) {
-            if (base_pipeline_->getResult(results, result_id, &processed_image)) {
-                got_result = true;
-                break;
-            }
-            // 短暂等待后重试
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
+        LOG_INFO("Waiting for OCR results for task_id={}...", task_id);
         
-        if (!got_result) {
-            LOG_ERROR("Failed to get OCR results after {} retries", max_retries);
+        if (!WaitForResult(task_id, results, processed_image, 10000)) {
+            LOG_ERROR("Failed to get OCR results for task_id={} (timeout)", task_id);
             response_json = JsonResponseBuilder::BuildErrorResponse(
                 ErrorCode::INTERNAL_ERROR, "Failed to get OCR results or timeout");
             return 500;

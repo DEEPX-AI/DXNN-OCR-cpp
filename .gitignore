@@ -161,3 +161,9 @@ cython_debug/
 git_token
 .temp/
 build_Release/
+results_mobile/
+results_server/
+vis_mobile/
+vis_server/
+engine/model_files/
+test/pipeline/

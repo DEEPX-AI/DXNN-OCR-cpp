@@ -20,19 +20,30 @@ DBPostProcessor::DBPostProcessor(float thresh,
 std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred, 
                                                          int src_h, int src_w,
                                                          int resized_h, int resized_w) {
+    // 使用成员变量中的默认参数调用重载版本
+    return process(pred, src_h, src_w, resized_h, resized_w, 
+                   thresh_, box_thresh_, unclip_ratio_);
+}
+
+std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred, 
+                                                         int src_h, int src_w,
+                                                         int resized_h, int resized_w,
+                                                         float thresh,
+                                                         float box_thresh,
+                                                         float unclip_ratio) {
     std::vector<DeepXOCR::TextBox> text_boxes;
 
     // If resized dimensions not provided, assume no padding
     if (resized_h <= 0) resized_h = src_h;
     if (resized_w <= 0) resized_w = src_w;
 
-    // 二值化
+    // 二值化（使用传入的 thresh 参数）
     cv::Mat bitmap;
-    cv::threshold(pred, bitmap, thresh_, 255, cv::THRESH_BINARY);
+    cv::threshold(pred, bitmap, thresh, 255, cv::THRESH_BINARY);
     bitmap.convertTo(bitmap, CV_8UC1);
 
     LOG_DEBUG("Binary threshold: {:.2f}, bitmap size: {}x{}, non-zero: {}", 
-              thresh_, bitmap.cols, bitmap.rows, cv::countNonZero(bitmap));
+              thresh, bitmap.cols, bitmap.rows, cv::countNonZero(bitmap));
 
     // 查找轮廓
     auto contours = findContours(bitmap);
@@ -44,9 +55,9 @@ std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred,
     for (int i = 0; i < num_contours; i++) {
         const auto& contour = contours[i];
 
-        // 计算置信度分数
+        // 计算置信度分数（使用传入的 box_thresh 参数）
         float score = boxScoreFast(pred, contour);
-        if (score < box_thresh_) {
+        if (score < box_thresh) {
             continue;
         }
 
@@ -58,8 +69,8 @@ std::vector<DeepXOCR::TextBox> DBPostProcessor::process(const cv::Mat& pred,
             continue;
         }
 
-        // 扩展检测框
-        auto unclipped_box = unclip(box);
+        // 扩展检测框（使用传入的 unclip_ratio 参数）
+        auto unclipped_box = unclip(box, unclip_ratio);
 
         // Clipper2 may return a polygon with many points (e.g., 56 points for rounded corners)
         // Convert to minimum bounding rectangle (4 points)
@@ -184,6 +195,11 @@ float DBPostProcessor::boxScoreFast(const cv::Mat& bitmap,
 }
 
 std::vector<cv::Point2f> DBPostProcessor::unclip(const std::vector<cv::Point2f>& box) {
+    // 使用成员变量中的默认参数调用重载版本
+    return unclip(box, unclip_ratio_);
+}
+
+std::vector<cv::Point2f> DBPostProcessor::unclip(const std::vector<cv::Point2f>& box, float unclip_ratio) {
     // 计算原始面积和周长
     float area = polygonArea(box);
     float length = polygonLength(box);
@@ -192,8 +208,8 @@ std::vector<cv::Point2f> DBPostProcessor::unclip(const std::vector<cv::Point2f>&
         return box;
     }
 
-    // 计算扩展距离（与Python pyclipper保持一致）
-    float distance = area * unclip_ratio_ / length;
+    // 计算扩展距离（与Python pyclipper保持一致，使用传入的 unclip_ratio 参数）
+    float distance = area * unclip_ratio / length;
 
     // 使用Clipper2进行多边形偏移
     // 转换cv::Point2f到Clipper2的Path格式
@@ -213,8 +229,8 @@ std::vector<cv::Point2f> DBPostProcessor::unclip(const std::vector<cv::Point2f>&
     // Debug logging
     static int debug_count = 0;
     if (debug_count < 3) {
-        LOG_DEBUG("Unclip: area={:.2f}, length={:.2f}, distance={:.2f}, solution paths={}", 
-                 area, length, distance, solution.size());
+        LOG_DEBUG("Unclip: area={:.2f}, length={:.2f}, ratio={:.2f}, distance={:.2f}, solution paths={}", 
+                 area, length, unclip_ratio, distance, solution.size());
         if (!solution.empty()) {
             LOG_DEBUG("  First solution has {} points", solution[0].size());
         }
