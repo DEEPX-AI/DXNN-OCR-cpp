@@ -35,7 +35,11 @@ struct OCRRequest {
     double textRecScoreThresh = 0.0;        // 识别置信度阈值
     bool visualize = false;                 // 是否开启可视化
     
-    // PDF 专用参数 (参考 PaddleOCR 默认值)
+    // 请求大小限制
+    static constexpr size_t MAX_BASE64_SIZE = 50 * 1024 * 1024;     // 50MB Base64
+    static constexpr size_t MAX_URL_LENGTH = 2048;                  // URL 长度限制
+    
+    // PDF 参数配置
     int pdfDpi = 150;                       // PDF 渲染 DPI (默认 150)
     int pdfMaxPages = 10;                   // 最大处理页数 (默认 10)
     

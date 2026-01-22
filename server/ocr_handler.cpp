@@ -42,7 +42,25 @@ bool OCRRequest::Validate(std::string& error_msg) const {
         return false;
     }
     
-    // 检查fileType（现在支持 PDF）
+    // 检查文件大小限制
+    bool is_url = (file.find("http://") == 0 || file.find("https://") == 0);
+    
+    if (is_url) {
+        // URL 长度限制
+        if (file.size() > MAX_URL_LENGTH) {
+            error_msg = fmt::format("URL too long (max {} characters)", MAX_URL_LENGTH);
+            return false;
+        }
+    } else {
+        // Base64 大小限制
+        if (file.size() > MAX_BASE64_SIZE) {
+            error_msg = fmt::format("File too large (max {} MB)", 
+                                    MAX_BASE64_SIZE / (1024 * 1024));
+            return false;
+        }
+    }
+
+    // 检查fileType
     if (fileType != 0 && fileType != 1) {
         error_msg = "fileType must be 0 (PDF) or 1 (Image)";
         return false;
@@ -292,7 +310,7 @@ int OCRHandler::HandleRequest(const OCRRequest& request, json& response_json) {
             return 400;
         }
         
-        // 2. 确保 pipeline 已初始化（全局一次）
+        // 2. 确保 pipeline 已初始化
         static std::once_flag init_flag;
         std::call_once(init_flag, [this]() {
             if (!base_pipeline_->initialize()) {

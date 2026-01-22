@@ -166,11 +166,13 @@ public:
      * @param url PDF 文件 URL
      * @param config 渲染配置
      * @param timeoutSeconds 下载超时时间
+     * @param verifySSL 是否验证 SSL 证书
      * @return PDFRenderResult 渲染结果
      */
     PDFRenderResult RenderFromURL(const std::string& url,
-                                   const PDFRenderConfig& config = {},
-                                   int timeoutSeconds = 30);
+                                    const PDFRenderConfig& config = {},
+                                    int timeoutSeconds = 30,
+                                    bool verifySSL = true);
     
     /**
      * @brief 从内存数据渲染 PDF

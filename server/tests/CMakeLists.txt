@@ -22,6 +22,9 @@ set(TEST_SOURCES
     test_json_response.cpp
     test_file_handler.cpp
     test_pdf_handler.cpp
+    test_ssl_verification.cpp
+    test_cli_args.cpp
+    test_request_size_limits.cpp
     stress_test.cpp
     # Server source files (modules to test)
     ${CMAKE_SOURCE_DIR}/server/ocr_handler.cpp

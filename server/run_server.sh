@@ -27,8 +27,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build_Release"
 
-# 可视化输出目录（使用绝对路径，避免工作目录问题）
-VIS_DIR="${PROJECT_ROOT}/output/vis"
+# 可视化输出目录
+VIS_DIR="output/vis"
 
 # ============================================
 # 帮助信息
@@ -156,11 +156,13 @@ echo -e "${GREEN}Starting OCR Server...${NC}"
 echo -e "${CYAN}----------------------------------------${NC}"
 echo ""
 
-cd "$BUILD_DIR"
+# 切换到项目根目录
+cd "$PROJECT_ROOT"
 
 # 构建命令
-CMD="./bin/ocr_server --port $PORT --model $MODEL --threads $THREADS --vis-dir $VIS_DIR"
+CMD="$BUILD_DIR/bin/ocr_server --port $PORT --model $MODEL --threads $THREADS --vis-dir $VIS_DIR --log-dir logs"
 echo -e "${BLUE}Command: $CMD${NC}"
+echo -e "${BLUE}Working Directory: $(pwd)${NC}" # TODO: 测试待删除
 echo ""
 
 # 执行

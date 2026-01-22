@@ -9,10 +9,57 @@
 #include <getopt.h>
 #include <memory>
 #include <string>
+#include <cstring>
 
 using json = nlohmann::json;
 using namespace ocr_server;
 
+/**
+ * @brief 安全解析整数参数
+ * @param arg 输入字符串
+ * @param value 输出的整数值
+ * @param name 参数名称（用于错误提示）
+ * @param min_val 最小允许值
+ * @param max_val 最大允许值
+ * @return 解析成功返回 true，失败返回 false
+ */
+static bool parseIntArg(const char* arg, int& value, const char* name,
+                        int min_val = INT_MIN, int max_val = INT_MAX) {
+    // 检查空指针或空字符串
+    if (arg == nullptr || arg[0] == '\0') {
+        std::cerr << "Error: " << name << " value can't be empty" << std::endl;
+        return false;
+    }
+
+    try {
+        size_t pos = 0;
+        int parsed = std::stoi(arg, &pos);
+
+        // 检查是否完全转换：防止 "123abc" 字母数字混合输入情况
+        if (pos != strlen(arg)) {
+            std::cerr << "Error: " << name << " value: '" << arg 
+                      << "' (contains non-digit characters)" << std::endl;
+            return false;
+        }
+
+        // 范围检查
+        if (parsed < min_val || parsed > max_val) {
+            std::cerr << "Error: " << name << " must be in range [" 
+                      << min_val << ", " << max_val << "], got: " << parsed << std::endl;
+            return false;
+        }
+
+        value = parsed;
+        return true;
+    } catch (const std::invalid_argument&) {
+        std::cerr << "Error: Invalid " << name << " value: '" << arg
+                  << "' (not a valid integer)" << std::endl;
+        return false;
+    } catch (const std::out_of_range&) {
+        std::cerr << "Error: " << name << " value out of range: '" << arg << "'/n" << std::endl;
+        return false;
+    }
+}
 
 /**
  * @brief 加载OCR Pipeline配置
@@ -108,10 +155,16 @@ int main(int argc, char* argv[]) {
     while ((opt = getopt_long(argc, argv, "p:t:v:m:l:h", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'p':
-                port = std::stoi(optarg);
+                // 端口范围: 1-65535 (标准TCP/UDP端口范围)
+                if (!parseIntArg(optarg, port, "port", 1, 65535)) {
+                    return 1;
+                }
                 break;
             case 't':
-                threads = std::stoi(optarg);
+                // 线程数范围: 1-256 (合理的线程数限制)
+                if (!parseIntArg(optarg, threads, "threads", 1, 256)) {
+                    return 1;
+                }
                 break;
             case 'v':
                 vis_dir = optarg;
@@ -237,35 +290,18 @@ int main(int argc, char* argv[]) {
     });
     
     // 静态文件服务（用于访问可视化图片）
-    // 注意：使用 <path> 而不是 <string> 以匹配包含点号的文件名
     CROW_ROUTE(app, "/static/vis/<path>")
-    ([vis_dir](std::string filename) {
+    ([vis_dir](crow::response& res, std::string filename) {
         std::string filepath = vis_dir + "/" + filename;
         
-        // 检查文件是否存在
-        if (!std::filesystem::exists(filepath)) {
-            LOG_WARN("Visualization file not found: {}", filepath);
-            return crow::response(404, "File not found");
-        }
-        
-        // 手动读取文件并返回（不使用 set_static_file_info，因为它对绝对路径支持有问题）
-        std::ifstream file(filepath, std::ios::binary);
-        if (!file) {
-            LOG_ERROR("Failed to open file: {}", filepath);
-            return crow::response(500, "Failed to open file");
-        }
-        
-        // 读取文件内容
-        std::ostringstream oss;
-        oss << file.rdbuf();
-        std::string content = oss.str();
-        
-        // 创建响应
-        crow::response res(200, content);
-        res.set_header("Content-Type", "image/jpeg");
-        res.set_header("Content-Length", std::to_string(content.size()));
-        
-        return res;
+        // 使用 Crow 内置方法：
+        // 1. 自动进行路径安全清理（防止路径穿越攻击）
+        // 2. 自动根据文件扩展名设置 Content-Type
+        // 3. 自动设置 Content-Length
+        // 4. 文件不存在时自动返回 404
+        LOG_DEBUG("Serving static file: {}", filepath);
+        res.set_static_file_info(filepath);
+        res.end();
     });
     
     // 启动服务器

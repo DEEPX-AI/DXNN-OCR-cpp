@@ -161,8 +161,9 @@ PDFRenderResult PDFHandler::RenderFromBase64(const std::string& base64_str,
 }
 
 PDFRenderResult PDFHandler::RenderFromURL(const std::string& url,
-                                           const PDFRenderConfig& config,
-                                           int timeoutSeconds) {
+                                            const PDFRenderConfig& config,
+                                            int timeoutSeconds,
+                                            bool verifySSL) {
     PDFRenderResult result;
     
     LOG_INFO("Downloading PDF from URL: {}", url.substr(0, 100));
@@ -192,7 +193,15 @@ PDFRenderResult PDFHandler::RenderFromURL(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeoutSeconds);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+
+    if (verifySSL) {
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    } else {
+        LOG_WARN("SSL verification disabled for PDF download - NOT recommended for production!");
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    }
     
     CURLcode res = curl_easy_perform(curl);
     long http_code = 0;

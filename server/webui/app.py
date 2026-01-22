@@ -1,8 +1,3 @@
-"""
-DeepX OCR Server Web UI
-严格基于 PP-OCRv5_Online_demo UI 布局，适配 DeepX OCR Server API
-"""
-
 import atexit
 import base64
 import io
