@@ -2233,55 +2233,11 @@ with gr.Blocks(css=CSS, title=TITLE, theme=paddle_theme, head=FORCE_EN_SCRIPT) a
             const resultsColumn = document.getElementById('results-column');
             let __syncing = false;
             let __observer = null;
-            // #region agent log
-            const __agentLog = (hypothesisId, message, data) => {{
-                fetch('http://localhost:7243/ingest/9ee15b4b-d4c5-4bd0-8443-e566ed3e8dee', {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{
-                        sessionId: 'debug-session',
-                        runId: 'align-debug',
-                        hypothesisId,
-                        location: 'app.py:1852',
-                        message,
-                        data,
-                        timestamp: Date.now()
-                    }})
-                }}).catch(() => {{}});
-            }};
-            // #endregion
-
-            // #region agent log
-            const logAlignment = (reason) => {{
-                if (!sidebar || !resultsColumn) return;
-                const heading = resultsColumn.querySelector('h1, h2, h3, h4');
-                const sidebarRect = sidebar.getBoundingClientRect();
-                const resultsRect = resultsColumn.getBoundingClientRect();
-                const headingRect = heading ? heading.getBoundingClientRect() : null;
-                const resultsStyle = window.getComputedStyle(resultsColumn);
-                __agentLog('H5', 'alignment:measure', {{
-                    reason,
-                    sidebarLeft: sidebarRect.left,
-                    resultsLeft: resultsRect.left,
-                    resultsPaddingLeft: resultsStyle.paddingLeft,
-                    headingLeft: headingRect ? headingRect.left : null,
-                    headingText: heading ? heading.textContent.trim().slice(0, 50) : null
-                }});
-            }};
-            // #endregion
 
             function syncColumnHeights(reason) {{
                 if (!sidebar || !resultsColumn) return;
                 if (__syncing) return;
                 __syncing = true;
-                // #region agent log
-                __agentLog('H1', 'syncColumnHeights:enter', {{
-                    reason,
-                    sidebarDisplay: sidebar.style.display,
-                    sidebarH: sidebar.offsetHeight,
-                    resultsH: resultsColumn.offsetHeight
-                }});
-                // #endregion
                 if (__observer) __observer.disconnect();
                 
                 // Reset any previous height settings
@@ -2326,17 +2282,6 @@ with gr.Blocks(css=CSS, title=TITLE, theme=paddle_theme, head=FORCE_EN_SCRIPT) a
                 
                 if (__observer) __observer.observe(resultsColumn, {{ childList: true, subtree: true }});
                 __syncing = false;
-                // #region agent log
-                __agentLog('H1', 'syncColumnHeights:exit', {{
-                    sidebarHeight,
-                    fixedHeight,
-                    scrollableMaxHeight,
-                    hasOcrGallery: !!ocrGallery,
-                    hasJsonContainer: !!jsonContainer,
-                    sidebarFinalH: sidebar.offsetHeight,
-                    resultsFinalH: resultsColumn.offsetHeight
-                }});
-                // #endregion
             }}
 
             
@@ -2383,30 +2328,15 @@ with gr.Blocks(css=CSS, title=TITLE, theme=paddle_theme, head=FORCE_EN_SCRIPT) a
             // Delay initialization to ensure Gradio components are fully rendered
             setTimeout(() => {{
                 syncColumnHeights('init');
-                logAlignment('init');
             }}, 100);
-            requestAnimationFrame(() => logAlignment('raf'));
             window.addEventListener('resize', () => {{
                 clearTimeout(window.__syncColumnsTimer);
-                // #region agent log
-                __agentLog('H2', 'window:resize', {{
-                    width: window.innerWidth,
-                    height: window.innerHeight,
-                    dpr: window.devicePixelRatio
-                }});
-                // #endregion
                 window.__syncColumnsTimer = setTimeout(() => syncColumnHeights('resize'), 100);
             }});
 
             if (resultsColumn) {{
                 __observer = new MutationObserver((mutations) => {{
-                    // #region agent log
-                    __agentLog('H3', 'resultsColumn:mutations', {{
-                        count: mutations.length
-                    }});
-                    // #endregion
                     syncColumnHeights('mutations');
-                    logAlignment('mutations');
                 }});
                 __observer.observe(resultsColumn, {{ childList: true, subtree: true }});
             }}

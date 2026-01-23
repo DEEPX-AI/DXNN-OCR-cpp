@@ -68,20 +68,23 @@ bool OCRRequest::Validate(std::string& error_msg) const {
     
     // PDF 参数验证
     if (fileType == 0) {
-        // DPI 限制 [72, 300]
-        if (pdfDpi < 72 || pdfDpi > 300) {
-            error_msg = "pdfDpi must be in range [72, 300]";
+        // DPI 限制
+        if (pdfDpi < PDFConstants::MIN_DPI || pdfDpi > PDFConstants::MAX_DPI) {
+            error_msg = fmt::format("pdfDpi must be in range [{}, {}]",
+                                    PDFConstants::MIN_DPI, PDFConstants::MAX_DPI);
             return false;
         }
         
-        // 页数限制 [1, 100]
-        if (pdfMaxPages < 1 || pdfMaxPages > 100) {
-            error_msg = "pdfMaxPages must be in range [1, 100]";
+        // 页数限制
+        if (pdfMaxPages < PDFConstants::MIN_PAGES || pdfMaxPages > PDFConstants::MAX_PAGES) {
+            error_msg = fmt::format("pdfMaxPages must be in range [{}, {}]",
+                                    PDFConstants::MIN_PAGES, PDFConstants::MAX_PAGES);
             return false;
         }
         
         // 内存预估警告（A4 @ 150 DPI ~= 8.7MB/页）
-        if (pdfMaxPages > 10 && pdfDpi > 150) {
+        if (pdfMaxPages > PDFConstants::HIGH_MEMORY_PAGE_THRESHOLD && 
+            pdfDpi > PDFConstants::HIGH_MEMORY_DPI_THRESHOLD) {
             LOG_WARN("High memory usage expected: {} pages at {} DPI", 
                      pdfMaxPages, pdfDpi);
         }
@@ -156,13 +159,18 @@ void OCRHandler::ResultCollectorLoop() {
         std::vector<ocr::PipelineOCRResult> results;
         int64_t result_id;
         cv::Mat processed_image;
+        bool success = true;
         
-        if (base_pipeline_->getResult(results, result_id, &processed_image)) {
-            LOG_DEBUG("[COLLECTOR] Got result for task_id={}, storing in map", result_id);
+        if (base_pipeline_->getResult(results, result_id, &processed_image, &success)) {
+            if (!success) {
+                LOG_WARN("[COLLECTOR] Task failed for task_id={}", result_id);
+            } else {
+                LOG_DEBUG("[COLLECTOR] Got result for task_id={}, storing in map", result_id);
+            }
             
             {
                 std::lock_guard<std::mutex> lock(result_mutex_);
-                result_store_[result_id] = TaskResult{std::move(results), std::move(processed_image)};
+                result_store_[result_id] = TaskResult{std::move(results), std::move(processed_image), success};
             }
             result_cv_.notify_all();  // 通知所有等待的请求
         }
@@ -170,7 +178,7 @@ void OCRHandler::ResultCollectorLoop() {
 }
 
 bool OCRHandler::WaitForResult(int64_t task_id, std::vector<ocr::PipelineOCRResult>& results, 
-                                cv::Mat& processedImage, int timeout_ms) {
+                                cv::Mat& processedImage, bool& success, int timeout_ms) {
     std::unique_lock<std::mutex> lock(result_mutex_);
     
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
@@ -181,14 +189,16 @@ bool OCRHandler::WaitForResult(int64_t task_id, std::vector<ocr::PipelineOCRResu
             // 找到结果
             results = std::move(it->second.results);
             processedImage = std::move(it->second.processedImage);
+            success = it->second.success;
             result_store_.erase(it);
-            LOG_DEBUG("[WAIT] Found result for task_id={}", task_id);
+            LOG_DEBUG("[WAIT] Found result for task_id={}, success={}", task_id, success);
             return true;
         }
         
         // 等待通知或超时
         if (result_cv_.wait_until(lock, deadline) == std::cv_status::timeout) {
             LOG_WARN("[WAIT] Timeout waiting for task_id={}", task_id);
+            success = false;  // 超时也视为失败
             return false;
         }
     }
@@ -392,13 +402,21 @@ int OCRHandler::HandleImageRequest(const OCRRequest& request, json& response_jso
     // 4. 等待结果
     std::vector<ocr::PipelineOCRResult> results;
     cv::Mat processed_image;
+    bool task_success = true;
     
     LOG_INFO("Waiting for OCR results for task_id={}...", task_id);
     
-    if (!WaitForResult(task_id, results, processed_image, 10000)) {
+    if (!WaitForResult(task_id, results, processed_image, task_success, 10000)) {
         LOG_ERROR("Failed to get OCR results for task_id={} (timeout)", task_id);
         response_json = JsonResponseBuilder::BuildErrorResponse(
             ErrorCode::INTERNAL_ERROR, "Failed to get OCR results or timeout");
+        return 500;
+    }
+    
+    if (!task_success) {
+        LOG_ERROR("OCR processing failed for task_id={} (engine error)", task_id);
+        response_json = JsonResponseBuilder::BuildErrorResponse(
+            ErrorCode::INTERNAL_ERROR, "OCR processing failed (detection engine error)");
         return 500;
     }
     
@@ -490,8 +508,15 @@ int OCRHandler::HandlePDFRequest(const OCRRequest& request, json& response_json)
     for (const auto& task : submittedTasks) {
         std::vector<ocr::PipelineOCRResult> ocrResults;
         cv::Mat processedImage;
+        bool task_success = true;
         
-        if (WaitForResult(task.taskId, ocrResults, processedImage, 30000)) {
+        if (WaitForResult(task.taskId, ocrResults, processedImage, task_success, 30000)) {
+            if (!task_success) {
+                LOG_ERROR("Page {} OCR failed (engine error, task_id={})", task.pageIndex, task.taskId);
+                pageResults[task.pageIndex] = json::array();  // 引擎失败，返回空结果
+                continue;
+            }
+            
             // 构建该页的 OCR 结果 JSON
             json ocrResultsJson = json::array();
             for (const auto& r : ocrResults) {
@@ -510,7 +535,7 @@ int OCRHandler::HandlePDFRequest(const OCRRequest& request, json& response_json)
             }
         } else {
             LOG_ERROR("Timeout waiting for page {} (task_id={})", task.pageIndex, task.taskId);
-            pageResults[task.pageIndex] = json::array();  // 空结果
+            pageResults[task.pageIndex] = json::array();  // 超时，返回空结果
         }
     }
     

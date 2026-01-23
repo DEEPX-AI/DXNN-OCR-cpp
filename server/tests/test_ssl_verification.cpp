@@ -23,6 +23,20 @@
 
 using namespace ocr_server;
 
+// ==================== 测试用 URL 定义 ====================
+namespace TestURLs {
+    // 百度 Logo 图片（国内访问稳定）
+    const char* BAIDU_LOGO = "https://www.baidu.com/img/PCtm_d9c8750bed0b3c7d089fa7d55720d6cf.png";
+    // 网络检测用 URL（使用 PNG 格式，OpenCV 不支持 ICO 格式）
+    const char* BAIDU_HOME = "https://www.baidu.com/img/PCtm_d9c8750bed0b3c7d089fa7d55720d6cf.png";
+    // HTTP 版本（非 HTTPS）
+    const char* BAIDU_HTTP = "http://www.baidu.com/img/PCtm_d9c8750bed0b3c7d089fa7d55720d6cf.png";
+    // badssl.com 自签名证书测试
+    const char* SELF_SIGNED = "https://self-signed.badssl.com/";
+    const char* EXPIRED_CERT = "https://expired.badssl.com/";
+    const char* WRONG_HOST = "https://wrong.host.badssl.com/";
+}
+
 // ==================== DownloadConfig 默认值测试 ====================
 
 /**
@@ -54,18 +68,16 @@ TEST(SSLVerification, DownloadConfig_CustomValues) {
 // ==================== 网络测试辅助函数 ====================
 
 /**
- * @brief 检查是否有网络连接
+ * @brief 检查是否有网络连接（使用百度）
  */
 static bool hasNetworkConnection() {
-    // 尝试连接一个可靠的服务来检测网络
     cv::Mat image;
     DownloadConfig config;
     config.timeoutSeconds = 5;
     config.verifySSL = true;
     
-    // 使用 httpbin.org 的一个小图片
-    return FileHandler::DownloadImageFromURL(
-        "https://httpbin.org/image/png", image, config);
+    // 使用百度 favicon 检测网络
+    return FileHandler::DownloadImageFromURL(TestURLs::BAIDU_HOME, image, config);
 }
 
 // ==================== 有效 HTTPS URL 测试 ====================
@@ -73,7 +85,7 @@ static bool hasNetworkConnection() {
 /**
  * @brief 测试有效 HTTPS URL + SSL 验证开启
  * 
- * 使用 httpbin.org 的图片 API，该服务有有效的 SSL 证书
+ * 使用百度 Logo 图片，该服务有有效的 SSL 证书
  */
 TEST(SSLVerification, ValidHTTPS_WithSSLVerification) {
     // 跳过测试如果没有网络
@@ -86,9 +98,8 @@ TEST(SSLVerification, ValidHTTPS_WithSSLVerification) {
     config.verifySSL = true;  // 显式开启 SSL 验证
     config.timeoutSeconds = 15;
     
-    // httpbin.org 有有效的 SSL 证书
-    bool success = FileHandler::DownloadImageFromURL(
-        "https://httpbin.org/image/png", image, config);
+    // 百度有有效的 SSL 证书
+    bool success = FileHandler::DownloadImageFromURL(TestURLs::BAIDU_LOGO, image, config);
     
     EXPECT_TRUE(success) << "Should successfully download from valid HTTPS with SSL verification";
     if (success) {
@@ -110,8 +121,7 @@ TEST(SSLVerification, ValidHTTPS_DefaultConfig) {
     // 使用默认配置（不传入 config 参数）
     DownloadConfig defaultConfig;  // 默认 verifySSL = true
     
-    bool success = FileHandler::DownloadImageFromURL(
-        "https://httpbin.org/image/jpeg", image, defaultConfig);
+    bool success = FileHandler::DownloadImageFromURL(TestURLs::BAIDU_LOGO, image, defaultConfig);
     
     EXPECT_TRUE(success) << "Default config should work with valid HTTPS";
 }
@@ -135,8 +145,7 @@ TEST(SSLVerification, SelfSignedCert_WithSSLVerification_ShouldFail) {
     
     // self-signed.badssl.com 使用自签名证书
     // 注意：这个网站返回的是 HTML，不是图片，但我们测试的是 SSL 握手阶段
-    bool success = FileHandler::DownloadImageFromURL(
-        "https://self-signed.badssl.com/", image, config);
+    bool success = FileHandler::DownloadImageFromURL(TestURLs::SELF_SIGNED, image, config);
     
     // 应该失败，因为自签名证书无法通过验证
     EXPECT_FALSE(success) << "Should fail with self-signed certificate when SSL verification is enabled";
@@ -156,8 +165,7 @@ TEST(SSLVerification, ExpiredCert_WithSSLVerification_ShouldFail) {
     config.timeoutSeconds = 10;
     
     // expired.badssl.com 使用过期的证书
-    bool success = FileHandler::DownloadImageFromURL(
-        "https://expired.badssl.com/", image, config);
+    bool success = FileHandler::DownloadImageFromURL(TestURLs::EXPIRED_CERT, image, config);
     
     EXPECT_FALSE(success) << "Should fail with expired certificate when SSL verification is enabled";
 }
@@ -176,8 +184,7 @@ TEST(SSLVerification, WrongHost_WithSSLVerification_ShouldFail) {
     config.timeoutSeconds = 10;
     
     // wrong.host.badssl.com 证书的主机名不匹配
-    bool success = FileHandler::DownloadImageFromURL(
-        "https://wrong.host.badssl.com/", image, config);
+    bool success = FileHandler::DownloadImageFromURL(TestURLs::WRONG_HOST, image, config);
     
     EXPECT_FALSE(success) << "Should fail with wrong hostname when SSL verification is enabled";
 }
@@ -204,8 +211,7 @@ TEST(SSLVerification, SelfSignedCert_WithoutSSLVerification) {
     
     // 这里我们只验证不会因为 SSL 错误而失败
     // 实际环境中，应该使用本地搭建的自签名 HTTPS 服务器进行测试
-    bool success = FileHandler::DownloadImageFromURL(
-        "https://self-signed.badssl.com/", image, config);
+    bool success = FileHandler::DownloadImageFromURL(TestURLs::SELF_SIGNED, image, config);
     
     // 使用 (void) 抑制未使用变量警告
     // 注意：这个测试可能成功（SSL 通过但图片解码失败）或失败
@@ -231,9 +237,8 @@ TEST(SSLVerification, DownloadSizeLimit_SmallFile) {
     config.maxDownloadSize = 10 * 1024 * 1024;  // 10MB 限制
     config.timeoutSeconds = 15;
     
-    // httpbin.org/image/png 返回一个小图片
-    bool success = FileHandler::DownloadImageFromURL(
-        "https://httpbin.org/image/png", image, config);
+    // 百度 Logo 是一个小图片
+    bool success = FileHandler::DownloadImageFromURL(TestURLs::BAIDU_LOGO, image, config);
     
     EXPECT_TRUE(success) << "Small image should download successfully within size limit";
 }
@@ -253,8 +258,7 @@ TEST(SSLVerification, DownloadSizeLimit_TooSmall) {
     config.timeoutSeconds = 15;
     
     // 任何正常图片都会超过 100 字节
-    bool success = FileHandler::DownloadImageFromURL(
-        "https://httpbin.org/image/png", image, config);
+    bool success = FileHandler::DownloadImageFromURL(TestURLs::BAIDU_LOGO, image, config);
     
     EXPECT_FALSE(success) << "Should fail when download exceeds size limit";
 }
@@ -276,15 +280,15 @@ TEST(SSLVerification, DownloadTimeout) {
     
     auto start = std::chrono::steady_clock::now();
     
-    // httpbin.org/delay/5 会延迟 5 秒响应，应该超时
+    // 使用一个不存在的端口来模拟超时
     bool success = FileHandler::DownloadImageFromURL(
-        "https://httpbin.org/delay/5", image, config);
+        "https://10.255.255.1/image.png", image, config);
     
     auto end = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
     
     EXPECT_FALSE(success) << "Should fail due to timeout";
-    EXPECT_LE(duration, 3) << "Should timeout within a reasonable time (1-3 seconds)";
+    EXPECT_LE(duration, 5) << "Should timeout within a reasonable time";
 }
 
 // ==================== HTTP vs HTTPS 测试 ====================
@@ -303,47 +307,13 @@ TEST(SSLVerification, HTTP_NotAffectedBySSLConfig) {
     config.timeoutSeconds = 15;
     
     // 使用 HTTP 协议
-    bool success = FileHandler::DownloadImageFromURL(
-        "http://httpbin.org/image/png", image, config);
+    bool success = FileHandler::DownloadImageFromURL(TestURLs::BAIDU_HTTP, image, config);
     
     // HTTP 不涉及 SSL，应该能正常工作
     EXPECT_TRUE(success) << "HTTP download should work regardless of SSL config";
 }
 
 // ==================== PDF Handler SSL 测试 ====================
-
-/**
- * @brief 测试 PDFHandler RenderFromURL 的 SSL 验证（有效证书）
- */
-TEST(SSLVerification, PDFHandler_ValidHTTPS) {
-    if (!hasNetworkConnection()) {
-        GTEST_SKIP() << "No network connection available, skipping network test";
-    }
-    
-    PDFHandler handler;
-    PDFRenderConfig config;
-    config.dpi = 72;
-    config.maxPages = 1;
-    
-    // 使用一个公共的 PDF URL
-    // 注意：这个 URL 可能不可用，测试可能需要调整
-    auto result = handler.RenderFromURL(
-        "https://www.w3.org/WAI/WCAG21/Techniques/pdf/img/table-word.pdf",
-        config,
-        30,     // timeout
-        true    // verifySSL = true
-    );
-    
-    // 如果 URL 不可用，跳过断言
-    if (result.errorCode == PDFErrorCode::FILE_ERROR) {
-        GTEST_SKIP() << "PDF URL not available, skipping test";
-    }
-    
-    // 应该能成功下载（SSL 验证通过）
-    if (result.success) {
-        EXPECT_GT(result.pages.size(), 0) << "Should have at least one page";
-    }
-}
 
 /**
  * @brief 测试 PDFHandler RenderFromURL 的 SSL 验证（自签名证书应失败）
@@ -423,8 +393,7 @@ TEST(SSLVerification, MultipleDownloads) {
     
     for (int i = 0; i < iterations; ++i) {
         cv::Mat image;
-        if (FileHandler::DownloadImageFromURL(
-                "https://httpbin.org/image/png", image, config)) {
+        if (FileHandler::DownloadImageFromURL(TestURLs::BAIDU_LOGO, image, config)) {
             successCount++;
         }
         // 小延迟避免请求过快

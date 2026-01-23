@@ -1,6 +1,6 @@
 /**
  * @file test_pdf_handler.cpp
- * @brief PDF 处理器测试 - PDFium 集成测试
+ * @brief PDF 处理器测试 - Poppler 集成测试
  * 
  * 测试 PDFHandler 类的 PDF 渲染功能
  */
@@ -17,27 +17,11 @@ using namespace ocr_server;
 // ==================== PDFErrorCode 测试 ====================
 
 /**
- * @brief 测试错误码映射
- */
-TEST(PDFHandler, MapPDFiumError_AllCodes) {
-    // 测试 PDFium 错误码到业务错误码的映射
-    EXPECT_EQ(PDFHandler::MapPDFiumError(0), PDFErrorCode::SUCCESS);      // FPDF_ERR_SUCCESS
-    EXPECT_EQ(PDFHandler::MapPDFiumError(1), PDFErrorCode::UNKNOWN_ERROR);  // FPDF_ERR_UNKNOWN
-    EXPECT_EQ(PDFHandler::MapPDFiumError(2), PDFErrorCode::FILE_ERROR);   // FPDF_ERR_FILE
-    EXPECT_EQ(PDFHandler::MapPDFiumError(3), PDFErrorCode::FORMAT_ERROR); // FPDF_ERR_FORMAT
-    EXPECT_EQ(PDFHandler::MapPDFiumError(4), PDFErrorCode::PASSWORD_REQUIRED); // FPDF_ERR_PASSWORD
-    EXPECT_EQ(PDFHandler::MapPDFiumError(5), PDFErrorCode::SECURITY_ERROR); // FPDF_ERR_SECURITY
-    EXPECT_EQ(PDFHandler::MapPDFiumError(6), PDFErrorCode::PAGE_ERROR);   // FPDF_ERR_PAGE
-    
-    // 未知错误码
-    EXPECT_EQ(PDFHandler::MapPDFiumError(99), PDFErrorCode::UNKNOWN_ERROR);
-}
-
-/**
  * @brief 测试错误消息获取
  */
 TEST(PDFHandler, GetErrorMessage_AllCodes) {
     EXPECT_EQ(PDFHandler::GetErrorMessage(PDFErrorCode::SUCCESS), "Success");
+    EXPECT_EQ(PDFHandler::GetErrorMessage(PDFErrorCode::CONFIG_ERROR), "Invalid PDF configuration parameters");
     EXPECT_EQ(PDFHandler::GetErrorMessage(PDFErrorCode::FILE_ERROR), "PDF file cannot be opened");
     EXPECT_EQ(PDFHandler::GetErrorMessage(PDFErrorCode::FORMAT_ERROR), "Invalid PDF format or corrupted file");
     EXPECT_EQ(PDFHandler::GetErrorMessage(PDFErrorCode::PASSWORD_REQUIRED), "PDF is password protected");
@@ -57,6 +41,7 @@ TEST(PDFHandler, GetErrorMessage_AllCodes) {
  */
 TEST(PDFHandler, GetHttpStatusCode) {
     EXPECT_EQ(PDFHandler::GetHttpStatusCode(PDFErrorCode::SUCCESS), 200);
+    EXPECT_EQ(PDFHandler::GetHttpStatusCode(PDFErrorCode::CONFIG_ERROR), 400);
     EXPECT_EQ(PDFHandler::GetHttpStatusCode(PDFErrorCode::FILE_ERROR), 400);
     EXPECT_EQ(PDFHandler::GetHttpStatusCode(PDFErrorCode::FORMAT_ERROR), 400);
     EXPECT_EQ(PDFHandler::GetHttpStatusCode(PDFErrorCode::PASSWORD_REQUIRED), 401);
@@ -65,6 +50,13 @@ TEST(PDFHandler, GetHttpStatusCode) {
     EXPECT_EQ(PDFHandler::GetHttpStatusCode(PDFErrorCode::MEMORY_ERROR), 503);
     EXPECT_EQ(PDFHandler::GetHttpStatusCode(PDFErrorCode::TIMEOUT_ERROR), 504);
     EXPECT_EQ(PDFHandler::GetHttpStatusCode(PDFErrorCode::UNKNOWN_ERROR), 500);
+}
+
+/**
+ * @brief 测试后端名称
+ */
+TEST(PDFHandler, GetBackendName) {
+    EXPECT_EQ(PDFHandler::GetBackendName(), "Poppler");
 }
 
 // ==================== PDFRenderConfig 测试 ====================
@@ -98,10 +90,10 @@ TEST(PDFHandler, ConstructorDestructor) {
 }
 
 /**
- * @brief 测试多次构造（单例初始化）
+ * @brief 测试多次构造
  */
 TEST(PDFHandler, MultipleInstances) {
-    // PDFium 应该只初始化一次（使用 std::once_flag）
+    // Poppler 不需要全局初始化，可以创建多个实例
     PDFHandler handler1;
     PDFHandler handler2;
     PDFHandler handler3;
@@ -142,7 +134,7 @@ TEST(PDFHandler, RenderFromMemory_InvalidData) {
 /**
  * @brief 测试 DPI 超限
  */
-TEST(PDFHandler, RenderFromMemory_DPIExceeded) {
+TEST(PDFHandler, RenderFromMemory_ConfigError) {
     PDFHandler handler;
     std::vector<uint8_t> dummy_data = {'%', 'P', 'D', 'F'};  // PDF 魔术字节
     
@@ -152,7 +144,7 @@ TEST(PDFHandler, RenderFromMemory_DPIExceeded) {
     PDFRenderResult result = handler.RenderFromMemory(dummy_data, config);
     
     EXPECT_FALSE(result.success);
-    EXPECT_EQ(result.errorCode, PDFErrorCode::DPI_LIMIT_EXCEEDED);
+    EXPECT_EQ(result.errorCode, PDFErrorCode::CONFIG_ERROR);
 }
 
 // ==================== RenderFromBase64 测试 ====================

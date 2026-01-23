@@ -99,6 +99,7 @@ private:
     struct TaskResult {
         std::vector<ocr::PipelineOCRResult> results;
         cv::Mat processedImage;
+        bool success = true;  // 任务是否成功（false 表示检测/识别引擎异常）
     };
     std::map<int64_t, TaskResult> result_store_;       // task_id -> 结果
     std::mutex result_mutex_;                           // 保护 result_store_
@@ -110,7 +111,7 @@ private:
     void StopResultCollector();                         // 停止结果收集线程
     void ResultCollectorLoop();                         // 结果收集循环
     bool WaitForResult(int64_t task_id, std::vector<ocr::PipelineOCRResult>& results, 
-                       cv::Mat& processedImage, int timeout_ms = 10000);
+                       cv::Mat& processedImage, bool& success, int timeout_ms = 10000);
     
     // ==================== PDF 处理相关 ====================
     

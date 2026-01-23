@@ -139,15 +139,6 @@ else
 fi
 
 # ============================================
-# 设置 LD_LIBRARY_PATH
-# ============================================
-PDFIUM_LIB="${PROJECT_ROOT}/3rd-party/pdfium/lib"
-if [ -d "$PDFIUM_LIB" ]; then
-    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$PDFIUM_LIB"
-    echo -e "${GREEN}✓ PDFium library path added${NC}"
-fi
-
-# ============================================
 # 启动服务
 # ============================================
 echo ""
@@ -162,7 +153,6 @@ cd "$PROJECT_ROOT"
 # 构建命令
 CMD="$BUILD_DIR/bin/ocr_server --port $PORT --model $MODEL --threads $THREADS --vis-dir $VIS_DIR --log-dir logs"
 echo -e "${BLUE}Command: $CMD${NC}"
-echo -e "${BLUE}Working Directory: $(pwd)${NC}" # TODO: 测试待删除
 echo ""
 
 # 执行

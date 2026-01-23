@@ -10,8 +10,8 @@ find_package(CURL REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(UUID REQUIRED uuid)
 
-# PDFium is already configured in server/CMakeLists.txt via FetchPDFium.cmake
-# The 'pdfium' target is available as GLOBAL imported target
+# Poppler is already configured in server/CMakeLists.txt via FetchPoppler.cmake
+# The 'poppler' and 'poppler-cpp' targets are available as GLOBAL imported targets
 
 # ========================================
 # Test Sources
@@ -71,9 +71,21 @@ set(TEST_LINK_LIBS
     pthread
 )
 
-# Add PDFium if available (configured in server/CMakeLists.txt)
-if(TARGET pdfium)
-    list(APPEND TEST_LINK_LIBS pdfium)
+# Add Poppler if target exists (created by FetchPoppler.cmake as GLOBAL IMPORTED)
+if(TARGET poppler-cpp)
+    # Get include directories from the imported target
+    get_target_property(POPPLER_CPP_INCLUDES poppler-cpp INTERFACE_INCLUDE_DIRECTORIES)
+    if(POPPLER_CPP_INCLUDES)
+        target_include_directories(server_tests PRIVATE ${POPPLER_CPP_INCLUDES})
+    endif()
+    
+    list(APPEND TEST_LINK_LIBS poppler-cpp poppler)
+    pkg_check_modules(FONTCONFIG REQUIRED fontconfig)
+    pkg_check_modules(FREETYPE REQUIRED freetype2)
+    list(APPEND TEST_LINK_LIBS ${FONTCONFIG_LIBRARIES} ${FREETYPE_LIBRARIES})
+    message(STATUS "Server tests: Poppler enabled (includes: ${POPPLER_CPP_INCLUDES})")
+else()
+    message(WARNING "Server tests: Poppler NOT found (poppler-cpp target missing)")
 endif()
 
 target_link_libraries(server_tests PRIVATE ${TEST_LINK_LIBS})
@@ -96,8 +108,3 @@ add_test(NAME ServerUnitTests COMMAND server_tests)
 # Status
 # ========================================
 message(STATUS "Server tests executable: server_tests")
-if(TARGET pdfium)
-    message(STATUS "  PDFium: enabled (using global target)")
-else()
-    message(STATUS "  PDFium: disabled")
-endif()

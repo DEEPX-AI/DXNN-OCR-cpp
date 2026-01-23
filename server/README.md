@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Framework-Crow-blue.svg" alt="Crow">
-  <img src="https://img.shields.io/badge/PDF-PDFium-orange.svg" alt="PDFium">
+  <img src="https://img.shields.io/badge/PDF-Poppler-orange.svg" alt="Poppler">
   <img src="https://img.shields.io/badge/WebUI-Gradio-green.svg" alt="Gradio">
 </p>
 
@@ -348,7 +348,7 @@ cd server/tests
 server/
 ├── 📜 server_main.cpp        # 服务入口
 ├── 📜 ocr_handler.cpp/h      # OCR 请求处理器
-├── 📜 pdf_handler.cpp/h      # PDF 渲染处理器（基于 PDFium）
+├── 📜 pdf_handler.cpp/h      # PDF 渲染处理器（基于 Poppler）
 ├── 📜 file_handler.cpp/h     # 文件处理（Base64/URL）
 ├── 📜 json_response.cpp/h    # JSON 响应构建器
 ├── 📂 webui/                 # Gradio Web UI

@@ -31,8 +31,6 @@ if ! check_server; then
     echo "  cd $PROJECT_ROOT"
     echo "  source ./set_env.sh 1 2 1 3 2 4"
     echo "  cd build_Release"
-    echo "  LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:\$(pwd)/../3rd-party/pdfium/lib \\"
-    echo "    ./bin/ocr_server --port 8080"
     echo ""
     echo "============================================================"
     exit 1

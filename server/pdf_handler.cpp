@@ -3,33 +3,38 @@
 #include "common/logger.hpp"
 #include "base64.h"
 
-#include <fpdfview.h>
 #include <future>
 #include <chrono>
 #include <curl/curl.h>
 
+// Poppler C++ API
+#include <poppler/cpp/poppler-document.h>
+#include <poppler/cpp/poppler-page.h>
+#include <poppler/cpp/poppler-page-renderer.h>
+#include <poppler/cpp/poppler-image.h>
+
 namespace ocr_server {
-
-// ==================== 静态成员初始化 ====================
-
-std::once_flag PDFHandler::init_flag_;
-std::atomic<bool> PDFHandler::initialized_{false};
 
 // ==================== PDFRenderConfig ====================
 
 bool PDFRenderConfig::Validate(std::string& error_msg) const {
-    if (dpi < 72 || dpi > maxDpi) {
-        error_msg = fmt::format("pdfDpi must be in range [72, {}]", maxDpi);
+    if (dpi < PDFConstants::MIN_DPI || dpi > maxDpi) {
+        error_msg = fmt::format("pdfDpi must be in range [{}, {}]", 
+                                PDFConstants::MIN_DPI, maxDpi);
         return false;
     }
     
-    if (maxPages < 1 || maxPages > 100) {
-        error_msg = "pdfMaxPages must be in range [1, 100]";
+    if (maxPages < PDFConstants::MIN_PAGES || maxPages > PDFConstants::MAX_PAGES) {
+        error_msg = fmt::format("pdfMaxPages must be in range [{}, {}]",
+                                PDFConstants::MIN_PAGES, PDFConstants::MAX_PAGES);
         return false;
     }
     
-    if (maxConcurrentRenders < 1 || maxConcurrentRenders > 16) {
-        error_msg = "maxConcurrentRenders must be in range [1, 16]";
+    if (maxConcurrentRenders < PDFConstants::MIN_CONCURRENT_RENDERS || 
+        maxConcurrentRenders > PDFConstants::MAX_CONCURRENT_RENDERS) {
+        error_msg = fmt::format("maxConcurrentRenders must be in range [{}, {}]",
+                                PDFConstants::MIN_CONCURRENT_RENDERS, 
+                                PDFConstants::MAX_CONCURRENT_RENDERS);
         return false;
     }
     
@@ -39,46 +44,25 @@ bool PDFRenderConfig::Validate(std::string& error_msg) const {
 // ==================== PDFHandler 构造/析构 ====================
 
 PDFHandler::PDFHandler() {
-    InitializePDFium();
+    render_semaphore_ = std::make_unique<CountingSemaphore>(
+        PDFConstants::DEFAULT_MAX_CONCURRENT_RENDERS);
     
-    // 初始化渲染信号量（默认最多 4 个并发渲染）
-    render_semaphore_ = std::make_unique<CountingSemaphore>(4);
-    
-    LOG_INFO("PDFHandler created");
+    LOG_INFO("PDFHandler created with Poppler backend, max {} concurrent renders", 
+             PDFConstants::DEFAULT_MAX_CONCURRENT_RENDERS);
 }
 
 PDFHandler::~PDFHandler() {
-    // PDFium 库是全局的，不在这里销毁
     LOG_INFO("PDFHandler destroyed");
 }
 
-void PDFHandler::InitializePDFium() {
-    std::call_once(init_flag_, []() {
-        LOG_INFO("Initializing PDFium library...");
-        FPDF_InitLibrary();
-        initialized_.store(true);
-        LOG_INFO("PDFium library initialized");
-    });
-}
-
 // ==================== 错误处理 ====================
-
-int PDFHandler::MapPDFiumError(unsigned long pdfiumError) {
-    switch (pdfiumError) {
-        case FPDF_ERR_SUCCESS:  return PDFErrorCode::SUCCESS;
-        case FPDF_ERR_FILE:     return PDFErrorCode::FILE_ERROR;
-        case FPDF_ERR_FORMAT:   return PDFErrorCode::FORMAT_ERROR;
-        case FPDF_ERR_PASSWORD: return PDFErrorCode::PASSWORD_REQUIRED;
-        case FPDF_ERR_SECURITY: return PDFErrorCode::SECURITY_ERROR;
-        case FPDF_ERR_PAGE:     return PDFErrorCode::PAGE_ERROR;
-        default:                return PDFErrorCode::UNKNOWN_ERROR;
-    }
-}
 
 std::string PDFHandler::GetErrorMessage(int errorCode) {
     switch (errorCode) {
         case PDFErrorCode::SUCCESS:
             return "Success";
+        case PDFErrorCode::CONFIG_ERROR:
+            return "Invalid PDF configuration parameters";
         case PDFErrorCode::FILE_ERROR:
             return "PDF file cannot be opened";
         case PDFErrorCode::FORMAT_ERROR:
@@ -109,6 +93,8 @@ int PDFHandler::GetHttpStatusCode(int errorCode) {
     switch (errorCode) {
         case PDFErrorCode::SUCCESS:
             return 200;
+        case PDFErrorCode::CONFIG_ERROR:
+            return 400;
         case PDFErrorCode::PASSWORD_REQUIRED:
             return 401;
         case PDFErrorCode::SECURITY_ERROR:
@@ -120,7 +106,7 @@ int PDFHandler::GetHttpStatusCode(int errorCode) {
         case PDFErrorCode::UNKNOWN_ERROR:
             return 500;
         default:
-            return 400;  // 大多数是客户端错误
+            return 400;
     }
 }
 
@@ -155,7 +141,6 @@ PDFRenderResult PDFHandler::RenderFromBase64(const std::string& base64_str,
         return result;
     }
     
-    // 转换为 vector 并渲染
     std::vector<uint8_t> data(decoded.begin(), decoded.end());
     return RenderFromMemory(data, config);
 }
@@ -178,7 +163,6 @@ PDFRenderResult PDFHandler::RenderFromURL(const std::string& url,
     
     std::vector<uint8_t> buffer;
     
-    // CURL 回调
     auto writeCallback = [](void* contents, size_t size, size_t nmemb, void* userp) -> size_t {
         size_t total_size = size * nmemb;
         std::vector<uint8_t>* buf = static_cast<std::vector<uint8_t>*>(userp);
@@ -241,31 +225,39 @@ PDFRenderResult PDFHandler::RenderFromMemory(const std::vector<uint8_t>& data,
     // 1. 验证配置
     std::string configError;
     if (!config.Validate(configError)) {
-        result.errorCode = PDFErrorCode::DPI_LIMIT_EXCEEDED;
+        result.errorCode = PDFErrorCode::CONFIG_ERROR;
         result.errorMsg = configError;
         LOG_ERROR("Invalid PDF config: {}", configError);
         return result;
     }
     
     // 2. 加载 PDF 文档
-    FPDF_DOCUMENT doc = FPDF_LoadMemDocument(data.data(), 
-                                              static_cast<int>(data.size()), 
-                                              nullptr);
+    poppler::document* doc = poppler::document::load_from_raw_data(
+        reinterpret_cast<const char*>(data.data()), 
+        static_cast<int>(data.size()));
+    
     if (!doc) {
-        unsigned long pdfiumError = FPDF_GetLastError();
-        result.errorCode = MapPDFiumError(pdfiumError);
-        result.errorMsg = GetErrorMessage(result.errorCode);
-        LOG_ERROR("Failed to load PDF: {} (PDFium error: {})", 
-                  result.errorMsg, pdfiumError);
+        result.errorCode = PDFErrorCode::FORMAT_ERROR;
+        result.errorMsg = "Failed to load PDF document";
+        LOG_ERROR("Failed to load PDF with Poppler");
+        return result;
+    }
+    
+    // 检查是否加密
+    if (doc->is_locked()) {
+        delete doc;
+        result.errorCode = PDFErrorCode::PASSWORD_REQUIRED;
+        result.errorMsg = "PDF is password protected";
+        LOG_ERROR("PDF is password protected");
         return result;
     }
     
     // 3. 获取页数
-    result.totalPages = FPDF_GetPageCount(doc);
+    result.totalPages = doc->pages();
     LOG_INFO("PDF loaded: {} total pages", result.totalPages);
     
     if (result.totalPages == 0) {
-        FPDF_CloseDocument(doc);
+        delete doc;
         result.errorCode = PDFErrorCode::FORMAT_ERROR;
         result.errorMsg = "PDF has no pages";
         LOG_ERROR("PDF has no pages");
@@ -285,7 +277,7 @@ PDFRenderResult PDFHandler::RenderFromMemory(const std::vector<uint8_t>& data,
     result.renderedPages = static_cast<int>(result.pages.size());
     
     // 6. 关闭文档
-    FPDF_CloseDocument(doc);
+    delete doc;
     
     // 7. 统计结果
     result.failedPages = 0;
@@ -293,7 +285,6 @@ PDFRenderResult PDFHandler::RenderFromMemory(const std::vector<uint8_t>& data,
         if (!page.success) {
             result.failedPages++;
         }
-        result.totalRenderTimeMs += page.renderTimeMs;
     }
     
     auto endTime = std::chrono::high_resolution_clock::now();
@@ -306,14 +297,12 @@ PDFRenderResult PDFHandler::RenderFromMemory(const std::vector<uint8_t>& data,
         result.errorCode = PDFErrorCode::SUCCESS;
         result.errorMsg = "Success";
     } else if (result.failedPages < result.renderedPages) {
-        // 部分成功
-        result.success = true;  // 允许部分失败
+        result.success = true;
         result.errorCode = PDFErrorCode::SUCCESS;
         result.errorMsg = fmt::format("{} of {} pages failed to render", 
                                        result.failedPages, result.renderedPages);
         LOG_WARN("{}", result.errorMsg);
     } else {
-        // 全部失败
         result.success = false;
         result.errorCode = result.pages.empty() ? 
             PDFErrorCode::UNKNOWN_ERROR : result.pages[0].errorCode;
@@ -327,66 +316,182 @@ PDFRenderResult PDFHandler::RenderFromMemory(const std::vector<uint8_t>& data,
     return result;
 }
 
-std::vector<PDFPageImage> PDFHandler::RenderPagesParallel(void* doc, int pageCount,
-                                                          const PDFRenderConfig& config) {
+std::vector<PDFPageImage> PDFHandler::RenderPagesParallel(
+    poppler::document* doc, int pageCount, const PDFRenderConfig& config) {
+    
+    LOG_INFO("Starting PDF rendering: {} pages (max concurrent: {})", 
+             pageCount, config.maxConcurrentRenders);
+    
+    // ========== 阶段 1: 预加载所有页面 ==========
+    LOG_DEBUG("Phase 1: Preloading {} pages...", pageCount);
+    
+    struct PreloadedPage {
+        std::unique_ptr<poppler::page> page;
+        poppler::rectf rect;
+        bool valid = false;
+    };
+    
+    std::vector<PreloadedPage> preloadedPages(pageCount);
+    
+    {
+        std::lock_guard<std::mutex> lock(render_mutex_);
+        for (int i = 0; i < pageCount; ++i) {
+            preloadedPages[i].page.reset(doc->create_page(i));
+            if (preloadedPages[i].page) {
+                preloadedPages[i].rect = preloadedPages[i].page->page_rect();
+                preloadedPages[i].valid = true;
+            } else {
+                LOG_ERROR("Failed to create page {}", i);
+                preloadedPages[i].valid = false;
+            }
+        }
+    }
+    
+    LOG_DEBUG("Phase 1 complete: All pages preloaded");
+    
+    // ========== 阶段 2: 并行渲染 ==========
+    LOG_DEBUG("Phase 2: Rendering {} pages in parallel...", pageCount);
+    
     std::vector<std::future<PDFPageImage>> futures;
     futures.reserve(pageCount);
     
-    LOG_INFO("Starting parallel render of {} pages (max concurrent: {})", 
-             pageCount, config.maxConcurrentRenders);
-    
-    // 复制 config 避免引用捕获问题
     PDFRenderConfig configCopy = config;
     
-    // 并行提交渲染任务
     for (int i = 0; i < pageCount; ++i) {
         futures.push_back(std::async(std::launch::async, 
-            [this, doc, i, configCopy]() -> PDFPageImage {
-                // 获取渲染许可（限制并发数）
+            [this, &preloadedPages, i, configCopy]() -> PDFPageImage {
                 render_semaphore_->acquire();
                 
                 PDFPageImage result;
+                result.pageIndex = i;
+                result.success = false;
+                
                 try {
-                    result = RenderSinglePage(doc, i, configCopy);
+                    const auto& pageData = preloadedPages[i];
+                    
+                    if (!pageData.valid || !pageData.page) {
+                        result.errorCode = PDFErrorCode::PAGE_ERROR;
+                        result.errorMsg = fmt::format("Page {} was not loaded", i);
+                        render_semaphore_->release();
+                        return result;
+                    }
+                    
+                    auto startTime = std::chrono::high_resolution_clock::now();
+                    
+                    double widthPts = pageData.rect.width();
+                    double heightPts = pageData.rect.height();
+                    
+                    result.originalWidthPts = static_cast<int>(widthPts);
+                    result.originalHeightPts = static_cast<int>(heightPts);
+                    
+                    double scale = configCopy.dpi / PDFConstants::POINTS_PER_INCH;
+                    int renderWidth = static_cast<int>(widthPts * scale);
+                    int renderHeight = static_cast<int>(heightPts * scale);
+                    result.renderedWidth = renderWidth;
+                    result.renderedHeight = renderHeight;
+                    
+                    int64_t totalPixels = static_cast<int64_t>(renderWidth) * renderHeight;
+                    if (totalPixels > configCopy.maxPixelsPerPage) {
+                        result.errorCode = PDFErrorCode::PAGE_SIZE_ERROR;
+                        result.errorMsg = fmt::format(
+                            "Page {} size {}x{} ({} pixels) exceeds limit {}", 
+                            i, renderWidth, renderHeight, totalPixels, 
+                            configCopy.maxPixelsPerPage);
+                        LOG_WARN("{}", result.errorMsg);
+                        render_semaphore_->release();
+                        return result;
+                    }
+                    
+                    // 每个线程使用独立的 page_renderer（线程安全）
+                    poppler::page_renderer renderer;
+                    renderer.set_render_hint(poppler::page_renderer::antialiasing, true);
+                    renderer.set_render_hint(poppler::page_renderer::text_antialiasing, true);
+                    
+                    poppler::image img = renderer.render_page(
+                        pageData.page.get(), 
+                        configCopy.dpi, configCopy.dpi);
+                    
+                    if (!img.is_valid()) {
+                        result.errorCode = PDFErrorCode::MEMORY_ERROR;
+                        result.errorMsg = fmt::format("Failed to render page {}", i);
+                        LOG_ERROR("{}", result.errorMsg);
+                        render_semaphore_->release();
+                        return result;
+                    }
+                    
+                    // 转换 Poppler image 到 cv::Mat
+                    int imgWidth = img.width();
+                    int imgHeight = img.height();
+                    int bytesPerRow = img.bytes_per_row();
+                    const char* imgData = img.const_data();
+                    
+                    // 在 little-endian 系统上，ARGB32 实际存储为 BGRA 字节顺序
+                    poppler::image::format_enum fmt = img.format();
+                    
+                    if (fmt == poppler::image::format_argb32) {
+                        cv::Mat bgraImage(imgHeight, imgWidth, CV_8UC4, 
+                                         const_cast<char*>(imgData), bytesPerRow);
+                        if (configCopy.useAlpha) {
+                            result.image = bgraImage.clone();
+                        } else {
+                            cv::cvtColor(bgraImage, result.image, cv::COLOR_BGRA2BGR);
+                        }
+                    } else if (fmt == poppler::image::format_rgb24) {
+                        cv::Mat rgbImage(imgHeight, imgWidth, CV_8UC3, 
+                                        const_cast<char*>(imgData), bytesPerRow);
+                        cv::cvtColor(rgbImage, result.image, cv::COLOR_RGB2BGR);
+                    } else {
+                        LOG_WARN("Unsupported Poppler image format: {}, treating as BGRA", 
+                                 static_cast<int>(fmt));
+                        cv::Mat rawImage(imgHeight, imgWidth, CV_8UC4, 
+                                        const_cast<char*>(imgData), bytesPerRow);
+                        if (configCopy.useAlpha) {
+                            result.image = rawImage.clone();
+                        } else {
+                            cv::cvtColor(rawImage, result.image, cv::COLOR_BGRA2BGR);
+                        }
+                    }
+                    
+                    auto endTime = std::chrono::high_resolution_clock::now();
+                    result.renderTimeMs = std::chrono::duration<double, std::milli>(
+                        endTime - startTime).count();
+                    
+                    result.success = true;
+                    result.errorCode = PDFErrorCode::SUCCESS;
+                    
+                    LOG_DEBUG("Rendered page {}: {}x{} in {:.2f}ms", 
+                              i, imgWidth, imgHeight, result.renderTimeMs);
+                    
                 } catch (const std::exception& e) {
-                    result.pageIndex = i;
-                    result.success = false;
                     result.errorCode = PDFErrorCode::UNKNOWN_ERROR;
                     result.errorMsg = std::string("Exception: ") + e.what();
                     LOG_ERROR("Exception rendering page {}: {}", i, e.what());
                 }
                 
-                // 释放许可
                 render_semaphore_->release();
-                
                 return result;
             }));
     }
     
-    // 收集结果（保持页码顺序）
-    std::vector<PDFPageImage> pages;
-    pages.reserve(pageCount);
-    
+    // 收集结果
+    std::vector<PDFPageImage> results;
+    results.reserve(pageCount);
     for (int i = 0; i < pageCount; ++i) {
-        pages.push_back(futures[i].get());
+        results.push_back(futures[i].get());
     }
     
-    return pages;
+    LOG_DEBUG("Phase 2 complete: All pages rendered");
+    
+    return results;
 }
 
-PDFPageImage PDFHandler::RenderSinglePage(void* doc, int pageIndex,
+PDFPageImage PDFHandler::RenderSinglePage(poppler::document* doc, int pageIndex,
                                            const PDFRenderConfig& config) {
     PDFPageImage result;
     result.pageIndex = pageIndex;
     result.success = false;
     
-    auto startTime = std::chrono::high_resolution_clock::now();
-    
-    // PDFium 渲染操作不是线程安全的，整个过程需要互斥锁保护
-    std::lock_guard<std::mutex> lock(page_load_mutex_);
-    
-    // 1. 加载页面
-    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(doc), pageIndex);
+    std::unique_ptr<poppler::page> page(doc->create_page(pageIndex));
     if (!page) {
         result.errorCode = PDFErrorCode::PAGE_ERROR;
         result.errorMsg = fmt::format("Failed to load page {}", pageIndex);
@@ -394,66 +499,61 @@ PDFPageImage PDFHandler::RenderSinglePage(void* doc, int pageIndex,
         return result;
     }
     
-    // 2. 获取页面尺寸
-    double widthPts = FPDF_GetPageWidth(page);
-    double heightPts = FPDF_GetPageHeight(page);
+    auto startTime = std::chrono::high_resolution_clock::now();
+    
+    poppler::rectf rect = page->page_rect();
+    double widthPts = rect.width();
+    double heightPts = rect.height();
+    
     result.originalWidthPts = static_cast<int>(widthPts);
     result.originalHeightPts = static_cast<int>(heightPts);
     
-    // 3. 计算渲染尺寸
-    double scale = config.dpi / 72.0;
+    double scale = config.dpi / PDFConstants::POINTS_PER_INCH;
     int renderWidth = static_cast<int>(widthPts * scale);
     int renderHeight = static_cast<int>(heightPts * scale);
     result.renderedWidth = renderWidth;
     result.renderedHeight = renderHeight;
     
-    // 4. 检查像素限制
-    int64_t totalPixels = static_cast<int64_t>(renderWidth) * renderHeight;
-    if (totalPixels > config.maxPixelsPerPage) {
-        FPDF_ClosePage(page);
-        result.errorCode = PDFErrorCode::PAGE_SIZE_ERROR;
-        result.errorMsg = fmt::format("Page {} size {}x{} ({} pixels) exceeds limit {}", 
-                                       pageIndex, renderWidth, renderHeight,
-                                       totalPixels, config.maxPixelsPerPage);
-        LOG_WARN("{}", result.errorMsg);
-        return result;
-    }
+    poppler::page_renderer renderer;
+    renderer.set_render_hint(poppler::page_renderer::antialiasing, true);
+    renderer.set_render_hint(poppler::page_renderer::text_antialiasing, true);
     
-    // 5. 创建位图
-    FPDF_BITMAP bitmap = FPDFBitmap_Create(renderWidth, renderHeight, 
-                                            config.useAlpha ? 1 : 0);
-    if (!bitmap) {
-        FPDF_ClosePage(page);
+    poppler::image img = renderer.render_page(page.get(), config.dpi, config.dpi);
+    
+    if (!img.is_valid()) {
         result.errorCode = PDFErrorCode::MEMORY_ERROR;
-        result.errorMsg = fmt::format("Failed to allocate bitmap for page {} ({}x{})", 
-                                       pageIndex, renderWidth, renderHeight);
-        LOG_ERROR("{}", result.errorMsg);
+        result.errorMsg = fmt::format("Failed to render page {}", pageIndex);
         return result;
     }
     
-    // 6. 填充白色背景
-    FPDFBitmap_FillRect(bitmap, 0, 0, renderWidth, renderHeight, 0xFFFFFFFF);
+    int imgWidth = img.width();
+    int imgHeight = img.height();
+    int bytesPerRow = img.bytes_per_row();
+    const char* imgData = img.const_data();
     
-    // 7. 渲染页面到位图
-    FPDF_RenderPageBitmap(bitmap, page, 0, 0, renderWidth, renderHeight, 0, 0);
-    
-    // 8. 获取位图数据并转换为 cv::Mat
-    void* buffer = FPDFBitmap_GetBuffer(bitmap);
-    int stride = FPDFBitmap_GetStride(bitmap);
-    
-    // PDFium 使用 BGRA 格式 - 必须在释放 bitmap 前完成拷贝
-    cv::Mat bgraImage(renderHeight, renderWidth, CV_8UC4, buffer, stride);
-    
-    // 转换为 BGR（OpenCV 标准格式）- 这会拷贝数据
-    if (config.useAlpha) {
-        result.image = bgraImage.clone();
+    poppler::image::format_enum fmt = img.format();
+    if (fmt == poppler::image::format_argb32) {
+        cv::Mat bgraImage(imgHeight, imgWidth, CV_8UC4, 
+                         const_cast<char*>(imgData), bytesPerRow);
+        if (config.useAlpha) {
+            result.image = bgraImage.clone();
+        } else {
+            cv::cvtColor(bgraImage, result.image, cv::COLOR_BGRA2BGR);
+        }
+    } else if (fmt == poppler::image::format_rgb24) {
+        cv::Mat rgbImage(imgHeight, imgWidth, CV_8UC3, 
+                        const_cast<char*>(imgData), bytesPerRow);
+        cv::cvtColor(rgbImage, result.image, cv::COLOR_RGB2BGR);
     } else {
-        cv::cvtColor(bgraImage, result.image, cv::COLOR_BGRA2BGR);
+        LOG_WARN("Unsupported Poppler image format: {}", static_cast<int>(fmt));
+        cv::Mat rawImage(imgHeight, imgWidth, CV_8UC4, 
+                        const_cast<char*>(imgData), bytesPerRow);
+        if (config.useAlpha) {
+            result.image = rawImage.clone();
+        } else {
+            cv::cvtColor(rawImage, result.image, cv::COLOR_BGRA2BGR);
+        }
     }
-    
-    // 9. 清理 PDFium 资源
-    FPDFBitmap_Destroy(bitmap);
-    FPDF_ClosePage(page);
     
     auto endTime = std::chrono::high_resolution_clock::now();
     result.renderTimeMs = std::chrono::duration<double, std::milli>(
@@ -462,23 +562,27 @@ PDFPageImage PDFHandler::RenderSinglePage(void* doc, int pageIndex,
     result.success = true;
     result.errorCode = PDFErrorCode::SUCCESS;
     
-    LOG_DEBUG("Rendered page {}: {}x{} in {:.2f}ms", 
-              pageIndex, renderWidth, renderHeight, result.renderTimeMs);
-    
     return result;
 }
 
 int PDFHandler::GetPageCount(const std::vector<uint8_t>& data, int& errorCode) {
-    FPDF_DOCUMENT doc = FPDF_LoadMemDocument(data.data(), 
-                                              static_cast<int>(data.size()), 
-                                              nullptr);
+    poppler::document* doc = poppler::document::load_from_raw_data(
+        reinterpret_cast<const char*>(data.data()), 
+        static_cast<int>(data.size()));
+    
     if (!doc) {
-        errorCode = MapPDFiumError(FPDF_GetLastError());
+        errorCode = PDFErrorCode::FORMAT_ERROR;
         return -1;
     }
     
-    int pageCount = FPDF_GetPageCount(doc);
-    FPDF_CloseDocument(doc);
+    if (doc->is_locked()) {
+        delete doc;
+        errorCode = PDFErrorCode::PASSWORD_REQUIRED;
+        return -1;
+    }
+    
+    int pageCount = doc->pages();
+    delete doc;
     
     errorCode = PDFErrorCode::SUCCESS;
     return pageCount;

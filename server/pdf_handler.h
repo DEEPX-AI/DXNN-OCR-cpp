@@ -2,12 +2,12 @@
 
 /**
  * @file pdf_handler.h
- * @brief PDF 文件处理器 - 使用 PDFium 将 PDF 渲染为图像
+ * @brief PDF 文件处理器 - 使用 Poppler 将 PDF 渲染为图像
  * 
  * 功能：
  * - 支持 Base64 和 URL 输入
  * - 并行渲染多页 PDF（受信号量限制）
- * - 完整的错误处理（PDFium 错误码映射）
+ * - 完整的错误处理
  * - 内存控制（maxPages, maxDpi, maxPixelsPerPage）
  */
 
@@ -16,8 +16,14 @@
 #include <vector>
 #include <memory>
 #include <mutex>
-#include <atomic>
 #include <condition_variable>
+
+// Poppler 前向声明
+namespace poppler {
+    class document;
+    class page;
+    class page_renderer;
+}
 
 namespace ocr_server {
 
@@ -66,10 +72,13 @@ private:
 // ==================== PDF 错误码定义 ====================
 
 /**
- * @brief PDF 处理错误码（对应 PDFium FPDF_ERR_* 映射）
+ * @brief PDF 处理错误码
  */
 namespace PDFErrorCode {
     constexpr int SUCCESS = 0;
+    
+    // 配置错误 (1001)
+    constexpr int CONFIG_ERROR = 1001;         // 配置参数无效
     
     // 文件/格式错误 (1002-1009)
     constexpr int FILE_ERROR = 1002;           // 文件无法打开
@@ -87,21 +96,50 @@ namespace PDFErrorCode {
     constexpr int TIMEOUT_ERROR = 2003;        // 渲染超时
 }
 
+// ==================== PDF 处理常量 ====================
+
+/**
+ * @brief PDF 处理相关的常量定义
+ */
+namespace PDFConstants {
+    // PDF 标准常量
+    constexpr double POINTS_PER_INCH = 72.0;          // PDF 点数/英寸（PDF 标准）
+    
+    // 默认配置值
+    constexpr int DEFAULT_DPI = 150;                  // 默认渲染 DPI
+    constexpr int DEFAULT_MAX_PAGES = 10;             // 默认最大页数
+    constexpr int DEFAULT_MAX_DPI = 300;              // 默认 DPI 上限
+    constexpr int DEFAULT_MAX_PIXELS_PER_PAGE = 25000000;  // 默认单页最大像素数 (5000x5000)
+    constexpr int DEFAULT_RENDER_TIMEOUT_MS = 30000;  // 默认渲染超时 (30秒)
+    constexpr int DEFAULT_MAX_CONCURRENT_RENDERS = 4; // 默认最大并发渲染数
+    
+    // 参数范围限制
+    constexpr int MIN_DPI = 72;                       // 最小 DPI
+    constexpr int MAX_DPI = 300;                      // 最大 DPI
+    constexpr int MIN_PAGES = 1;                      // 最小页数
+    constexpr int MAX_PAGES = 100;                    // 最大页数
+    constexpr int MIN_CONCURRENT_RENDERS = 1;         // 最小并发数
+    constexpr int MAX_CONCURRENT_RENDERS = 16;        // 最大并发数
+    
+    // 内存警告阈值
+    constexpr int HIGH_MEMORY_PAGE_THRESHOLD = 10;    // 高内存使用页数阈值
+    constexpr int HIGH_MEMORY_DPI_THRESHOLD = 150;    // 高内存使用 DPI 阈值
+}
+
 // ==================== 配置结构 ====================
 
 /**
  * @brief PDF 渲染配置
  */
 struct PDFRenderConfig {
-    int dpi = 150;                      // 渲染 DPI (默认 150，参考 PaddleOCR)
-    int maxPages = 10;                  // 最大处理页数 (默认 10，参考 PaddleOCR)
-    int maxDpi = 300;                   // DPI 上限
-    int maxPixelsPerPage = 25000000;    // 单页最大像素数 (5000x5000)
-    int renderTimeoutMs = 30000;        // 单页渲染超时 (30s)
-    int maxConcurrentRenders = 4;       // 最大并发渲染页数
-    bool useAlpha = false;              // 是否保留透明通道
+    int dpi = PDFConstants::DEFAULT_DPI;
+    int maxPages = PDFConstants::DEFAULT_MAX_PAGES;
+    int maxDpi = PDFConstants::DEFAULT_MAX_DPI;
+    int maxPixelsPerPage = PDFConstants::DEFAULT_MAX_PIXELS_PER_PAGE;
+    int renderTimeoutMs = PDFConstants::DEFAULT_RENDER_TIMEOUT_MS;
+    int maxConcurrentRenders = PDFConstants::DEFAULT_MAX_CONCURRENT_RENDERS;
+    bool useAlpha = false;
     
-    // 验证配置
     bool Validate(std::string& error_msg) const;
 };
 
@@ -109,39 +147,38 @@ struct PDFRenderConfig {
  * @brief 单页渲染结果
  */
 struct PDFPageImage {
-    int pageIndex = -1;             // 页码 (0-based)
-    cv::Mat image;                  // 渲染后的图像
-    int originalWidthPts = 0;       // 原始 PDF 页面宽度 (点, 1点=1/72英寸)
-    int originalHeightPts = 0;      // 原始 PDF 页面高度 (点)
-    int renderedWidth = 0;          // 渲染后图像宽度 (像素)
-    int renderedHeight = 0;         // 渲染后图像高度 (像素)
-    bool success = false;           // 该页是否渲染成功
-    int errorCode = 0;              // 错误码 (如果失败)
-    std::string errorMsg;           // 错误信息 (如果失败)
-    double renderTimeMs = 0;        // 渲染耗时 (毫秒)
+    int pageIndex = -1;
+    cv::Mat image;
+    int originalWidthPts = 0;
+    int originalHeightPts = 0;
+    int renderedWidth = 0;
+    int renderedHeight = 0;
+    bool success = false;
+    int errorCode = 0;
+    std::string errorMsg;
+    double renderTimeMs = 0;
 };
 
 /**
  * @brief PDF 渲染整体结果
  */
 struct PDFRenderResult {
-    bool success = false;           // 是否全部成功
-    int errorCode = 0;              // 主要错误码
-    std::string errorMsg;           // 主要错误信息
-    int totalPages = 0;             // PDF 总页数
-    int renderedPages = 0;          // 实际渲染页数
-    int failedPages = 0;            // 失败页数
-    double totalRenderTimeMs = 0;   // 总渲染耗时
-    std::vector<PDFPageImage> pages; // 各页结果
+    bool success = false;
+    int errorCode = 0;
+    std::string errorMsg;
+    int totalPages = 0;
+    int renderedPages = 0;
+    int failedPages = 0;
+    double totalRenderTimeMs = 0;
+    std::vector<PDFPageImage> pages;
 };
 
 // ==================== PDFHandler 类 ====================
 
 /**
- * @brief PDF 处理器类
+ * @brief PDF 处理器类（使用 Poppler 后端）
  * 
- * 使用 PDFium 库将 PDF 文件渲染为 cv::Mat 图像。
- * 支持并行渲染（受信号量限制），完整的错误处理。
+ * Poppler 提供良好的线程安全性，适合高并发场景。
  */
 class PDFHandler {
 public:
@@ -154,20 +191,12 @@ public:
     
     /**
      * @brief 从 Base64 解码并渲染 PDF
-     * @param base64_str Base64 编码的 PDF 数据（可带 data:application/pdf;base64, 前缀）
-     * @param config 渲染配置
-     * @return PDFRenderResult 渲染结果
      */
     PDFRenderResult RenderFromBase64(const std::string& base64_str,
                                       const PDFRenderConfig& config = {});
     
     /**
      * @brief 从 URL 下载并渲染 PDF
-     * @param url PDF 文件 URL
-     * @param config 渲染配置
-     * @param timeoutSeconds 下载超时时间
-     * @param verifySSL 是否验证 SSL 证书
-     * @return PDFRenderResult 渲染结果
      */
     PDFRenderResult RenderFromURL(const std::string& url,
                                     const PDFRenderConfig& config = {},
@@ -176,65 +205,39 @@ public:
     
     /**
      * @brief 从内存数据渲染 PDF
-     * @param data PDF 文件原始数据
-     * @param config 渲染配置
-     * @return PDFRenderResult 渲染结果
      */
     PDFRenderResult RenderFromMemory(const std::vector<uint8_t>& data,
                                       const PDFRenderConfig& config = {});
     
     /**
      * @brief 获取 PDF 页数（不渲染）
-     * @param data PDF 文件原始数据
-     * @param errorCode 输出错误码
-     * @return 页数，失败返回 -1
      */
     int GetPageCount(const std::vector<uint8_t>& data, int& errorCode);
     
     // ==================== 静态工具方法 ====================
     
-    /**
-     * @brief 将 PDFium 错误码转换为业务错误码
-     */
-    static int MapPDFiumError(unsigned long pdfiumError);
-    
-    /**
-     * @brief 获取错误码对应的错误信息
-     */
     static std::string GetErrorMessage(int errorCode);
-    
-    /**
-     * @brief 获取建议的 HTTP 状态码
-     */
     static int GetHttpStatusCode(int errorCode);
+    static std::string GetBackendName() { return "Poppler"; }
     
 private:
     /**
-     * @brief 初始化 PDFium 库（全局只调用一次）
-     */
-    static void InitializePDFium();
-    
-    /**
-     * @brief 渲染单页（线程安全）
-     */
-    PDFPageImage RenderSinglePage(void* doc, int pageIndex, 
-                                   const PDFRenderConfig& config);
-    
-    /**
      * @brief 并行渲染所有页面
      */
-    std::vector<PDFPageImage> RenderPagesParallel(void* doc, int pageCount,
-                                                   const PDFRenderConfig& config);
+    std::vector<PDFPageImage> RenderPagesParallel(
+        poppler::document* doc, int pageCount, const PDFRenderConfig& config);
     
-    // PDFium 初始化标志
-    static std::once_flag init_flag_;
-    static std::atomic<bool> initialized_;
+    /**
+     * @brief 渲染单页
+     */
+    PDFPageImage RenderSinglePage(poppler::document* doc, int pageIndex,
+                                   const PDFRenderConfig& config);
     
     // 渲染并发控制
     std::unique_ptr<CountingSemaphore> render_semaphore_;
     
-    // PDFium 页面加载互斥锁（FPDF_LoadPage 不是线程安全的）
-    mutable std::mutex page_load_mutex_;
+    // 渲染互斥锁
+    mutable std::mutex render_mutex_;
 };
 
 } // namespace ocr_server

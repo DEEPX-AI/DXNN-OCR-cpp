@@ -14,6 +14,26 @@
 using json = nlohmann::json;
 using namespace ocr_server;
 
+// ==================== 服务器常量定义 ====================
+namespace {
+    // 服务器默认配置
+    constexpr int DEFAULT_PORT = 8080;
+    constexpr int DEFAULT_THREADS = 4;
+    constexpr int MIN_PORT = 1;
+    constexpr int MAX_PORT = 65535;
+    constexpr int MIN_THREADS = 1;
+    constexpr int MAX_THREADS = 256;
+    
+    // 认证相关
+    constexpr size_t TOKEN_PREFIX_LENGTH = 6;       // strlen("token ")
+    constexpr size_t TOKEN_LOG_TRUNCATE_LENGTH = 8; // Token 日志截断长度
+    
+    // 默认目录
+    const char* DEFAULT_VIS_DIR = "output/vis";
+    const char* DEFAULT_LOG_DIR = "logs";
+    const char* DEFAULT_MODEL_TYPE = "server";
+}
+
 /**
  * @brief 安全解析整数参数
  * @param arg 输入字符串
@@ -116,13 +136,13 @@ struct AuthMiddleware : crow::ILocalMiddleware {
         }
         
         // 提取token（可以在这里进行更复杂的验证）
-        std::string token = auth_header.substr(6);  // 跳过"token "
+        std::string token = auth_header.substr(TOKEN_PREFIX_LENGTH);
         
         // TODO: 在这里可以添加真实的token验证逻辑
         // 例如：查询数据库、验证JWT等
         
         LOG_INFO("Authenticated request from {} with token: {}...", 
-                 req.remote_ip_address, token.substr(0, 8));
+                 req.remote_ip_address, token.substr(0, TOKEN_LOG_TRUNCATE_LENGTH));
     }
     
     void after_handle(crow::request&, crow::response&, context&) {
@@ -132,11 +152,11 @@ struct AuthMiddleware : crow::ILocalMiddleware {
 
 int main(int argc, char* argv[]) {
     // 默认参数
-    int port = 8080;
-    int threads = 4;
-    std::string vis_dir = "output/vis";
-    std::string model_type = "server";
-    std::string log_dir = "logs";  // 默认日志目录
+    int port = DEFAULT_PORT;
+    int threads = DEFAULT_THREADS;
+    std::string vis_dir = DEFAULT_VIS_DIR;
+    std::string model_type = DEFAULT_MODEL_TYPE;
+    std::string log_dir = DEFAULT_LOG_DIR;
     
     // 定义长选项
     static struct option long_options[] = {
@@ -155,14 +175,12 @@ int main(int argc, char* argv[]) {
     while ((opt = getopt_long(argc, argv, "p:t:v:m:l:h", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'p':
-                // 端口范围: 1-65535 (标准TCP/UDP端口范围)
-                if (!parseIntArg(optarg, port, "port", 1, 65535)) {
+                if (!parseIntArg(optarg, port, "port", MIN_PORT, MAX_PORT)) {
                     return 1;
                 }
                 break;
             case 't':
-                // 线程数范围: 1-256 (合理的线程数限制)
-                if (!parseIntArg(optarg, threads, "threads", 1, 256)) {
+                if (!parseIntArg(optarg, threads, "threads", MIN_THREADS, MAX_THREADS)) {
                     return 1;
                 }
                 break;
@@ -182,11 +200,11 @@ int main(int argc, char* argv[]) {
             case 'h':
                 std::cout << "Usage: " << argv[0] << " [options]\n"
                           << "Options:\n"
-                          << "  -p, --port <port>        Server port (default: 8080)\n"
-                          << "  -t, --threads <num>      Number of threads (default: 4)\n"
-                          << "  -v, --vis-dir <path>     Visualization output directory (default: output/vis)\n"
-                          << "  -m, --model <type>       Model type: 'server' or 'mobile' (default: server)\n"
-                          << "  -l, --log-dir <path>     Log directory (default: logs)\n"
+                          << "  -p, --port <port>        Server port (default: " << DEFAULT_PORT << ")\n"
+                          << "  -t, --threads <num>      Number of threads (default: " << DEFAULT_THREADS << ")\n"
+                          << "  -v, --vis-dir <path>     Visualization output directory (default: " << DEFAULT_VIS_DIR << ")\n"
+                          << "  -m, --model <type>       Model type: 'server' or 'mobile' (default: " << DEFAULT_MODEL_TYPE << ")\n"
+                          << "  -l, --log-dir <path>     Log directory (default: " << DEFAULT_LOG_DIR << ")\n"
                           << "  -h, --help               Show this help message\n";
                 return 0;
             default:

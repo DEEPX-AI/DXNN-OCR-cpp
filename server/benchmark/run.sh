@@ -306,9 +306,6 @@ if [ "$SKIP_SERVER" = false ]; then
     # 创建服务器运行所需的 output 目录 (logs 目录不再需要)
     mkdir -p output/vis 2>/dev/null || true
     
-    # 设置 LD_LIBRARY_PATH 以包含 pdfium
-    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$PROJECT_ROOT/3rd-party/pdfium/lib"
-    
     # 启动服务器，日志保存到 benchmark/results/logs
     ./ocr_server --port $PORT --model $MODEL_TYPE > "$SERVER_LOG" 2>&1 &
     SERVER_PID=$!
@@ -399,9 +396,6 @@ run_stress_benchmark() {
     echo ""
     echo -e "${CYAN}========== Stress Test (C++) ==========${NC}"
     cd "$PROJECT_ROOT/build_Release"
-    
-    # 设置 LD_LIBRARY_PATH
-    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$PROJECT_ROOT/3rd-party/pdfium/lib"
     
     ./bin/api_benchmark \
         -u "http://localhost:$PORT/ocr" \

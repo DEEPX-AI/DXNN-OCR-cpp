@@ -15,15 +15,12 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(UUID REQUIRED uuid)
 
 # ========================================
-# PDFium Configuration (PDF rendering library)
+# Poppler Configuration (PDF rendering library)
 # ========================================
-# PDFium is managed as a submodule at 3rd-party/pdfium
-# Prebuilt binaries are downloaded from GitHub Releases
-# See: https://github.com/bblanchon/pdfium-binaries
-option(BUILD_WITH_PDFIUM "Build with PDFium support for PDF processing" ON)
-if(BUILD_WITH_PDFIUM)
-    include(${CMAKE_SOURCE_DIR}/cmake/FetchPDFium.cmake)
-endif()
+# Poppler provides good thread safety for concurrent PDF rendering
+# Source is downloaded and compiled automatically
+message(STATUS "Using Poppler for PDF rendering")
+include(${CMAKE_SOURCE_DIR}/cmake/FetchPoppler.cmake)
 
 # ========================================
 # Server Sources
@@ -53,6 +50,11 @@ target_include_directories(ocr_server PRIVATE
     ${UUID_INCLUDE_DIRS}
 )
 
+# Add Poppler include directories
+if(Poppler_FOUND)
+    target_include_directories(ocr_server PRIVATE ${POPPLER_INCLUDE_DIRS})
+endif()
+
 # ========================================
 # Link Libraries
 # ========================================
@@ -69,9 +71,12 @@ set(SERVER_LINK_LIBS
     pthread
 )
 
-# Add PDFium if enabled
-if(BUILD_WITH_PDFIUM AND PDFium_FOUND)
-    list(APPEND SERVER_LINK_LIBS pdfium)
+# Add Poppler libraries
+if(Poppler_FOUND)
+    list(APPEND SERVER_LINK_LIBS poppler-cpp poppler)
+    pkg_check_modules(FONTCONFIG REQUIRED fontconfig)
+    pkg_check_modules(FREETYPE REQUIRED freetype2)
+    list(APPEND SERVER_LINK_LIBS ${FONTCONFIG_LIBRARIES} ${FREETYPE_LIBRARIES})
 endif()
 
 target_link_libraries(ocr_server PRIVATE ${SERVER_LINK_LIBS})
@@ -86,25 +91,9 @@ set_target_properties(ocr_server PROPERTIES
 )
 
 # ========================================
-# Post-build: Copy PDFium runtime library
-# ========================================
-if(BUILD_WITH_PDFIUM AND PDFium_FOUND)
-    add_custom_command(TARGET ocr_server POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PDFIUM_RUNTIME_LIBRARY}"
-            "$<TARGET_FILE_DIR:ocr_server>"
-        COMMENT "Copying PDFium library to output directory"
-    )
-endif()
-
-# ========================================
 # Install Rules
 # ========================================
 install(TARGETS ocr_server DESTINATION bin)
-
-if(BUILD_WITH_PDFIUM AND PDFium_FOUND)
-    install(FILES "${PDFIUM_RUNTIME_LIBRARY}" DESTINATION lib)
-endif()
 
 # ========================================
 # Status Messages
@@ -115,9 +104,9 @@ message(STATUS "========================================")
 message(STATUS "  Executable: ocr_server")
 message(STATUS "  CURL: ${CURL_LIBRARIES}")
 message(STATUS "  UUID: ${UUID_LIBRARIES}")
-if(BUILD_WITH_PDFIUM AND PDFium_FOUND)
-    message(STATUS "  PDFium: ${PDFium_LIBRARY}")
+if(Poppler_FOUND)
+    message(STATUS "  PDF Library: Poppler ${Poppler_VERSION}")
 else()
-    message(STATUS "  PDFium: DISABLED")
+    message(STATUS "  PDF Library: NOT FOUND")
 endif()
 message(STATUS "========================================")

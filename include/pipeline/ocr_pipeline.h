@@ -204,9 +204,11 @@ public:
      * @brief 获取异步结果
      * @param results 输出OCR结果
      * @param id 输出任务ID
+     * @param processedImage 输出处理后的图像（可选）
+     * @param success 输出任务是否成功（可选，nullptr 表示不关心）
      * @return true表示获取成功，false表示队列为空
      */
-    bool getResult(std::vector<PipelineOCRResult>& results, int64_t& id, cv::Mat* processedImage = nullptr);
+    bool getResult(std::vector<PipelineOCRResult>& results, int64_t& id, cv::Mat* processedImage = nullptr, bool* success = nullptr);
     
 private:
     /**
@@ -242,6 +244,7 @@ private:
         cv::Mat processedImage;  // UVDoc 处理后的图像（用于可视化）
         int64_t id;
         OCRTaskConfig config;  // 任务级别配置（用于结果过滤）
+        bool success = true;   // 任务是否成功（false 表示检测/识别过程出错）
     };
 
     // Context for tracking async recognition of an entire image

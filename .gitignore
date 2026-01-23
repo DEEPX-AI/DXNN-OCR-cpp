@@ -164,7 +164,9 @@ build_Release/
 build_Debug/
 build_api_benchmark/
 
-3rd-party/pdfium/prebuilt/
+3rd-party/poppler/build/
+3rd-party/poppler/install/
+
 results_mobile/
 results_server/
 vis_mobile/
@@ -174,5 +176,5 @@ test/pipeline/
 server/tests/results/test*
 
 output/
-downloads/
+download/
 blog/

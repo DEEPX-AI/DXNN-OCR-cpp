@@ -424,7 +424,7 @@ bool OCRPipeline::pushTask(const cv::Mat& image, int64_t id, const OCRTaskConfig
     return true;
 }
 
-bool OCRPipeline::getResult(std::vector<PipelineOCRResult>& results, int64_t& id, cv::Mat* processedImage) {
+bool OCRPipeline::getResult(std::vector<PipelineOCRResult>& results, int64_t& id, cv::Mat* processedImage, bool* success) {
     if (!running_ || !outQueue_) return false;
     
     OutputTask task;
@@ -436,6 +436,9 @@ bool OCRPipeline::getResult(std::vector<PipelineOCRResult>& results, int64_t& id
     id = task.id;
     if (processedImage) {
         *processedImage = task.processedImage;
+    }
+    if (success) {
+        *success = task.success;
     }
     return true;
 }
@@ -489,8 +492,35 @@ void OCRPipeline::detectionLoop() {
         double preprocess_time = std::chrono::duration<double, std::milli>(t2 - t1).count();
 
         // 3. Submit Async Inference（使用 task.config 中的检测参数）
-        detector_->runAsync(preprocessed, h, w, resized_h, resized_w, task.id, processedImage, preprocess_time,
+        int ret = detector_->runAsync(preprocessed, h, w, resized_h, resized_w, task.id, processedImage, preprocess_time,
                             task.config.textDetThresh, task.config.textDetBoxThresh, task.config.textDetUnclipRatio);
+        if (ret < 0) {
+            LOG_ERROR("Failed to submit async inference, id={} ret={}", task.id, ret);
+            
+            // 删除刚插入的配置，避免内存泄漏
+            {
+                std::lock_guard<std::mutex> lock(pendingTaskConfigsMutex_);
+                pendingTaskConfigs_.erase(task.id);
+            }
+            
+            // 推送失败结果到输出队列，确保调用者能收到响应（避免无限等待）
+            if (outQueue_ && running_) {
+                OutputTask errorResult;
+                errorResult.results = std::vector<PipelineOCRResult>{};     // 空结果
+                errorResult.processedImage = processedImage;
+                errorResult.id = task.id;
+                errorResult.config = task.config;
+                errorResult.success = false;  // 标记为失败（检测引擎异常）
+                
+                if (!outQueue_->try_push(std::move(errorResult), std::chrono::milliseconds(100))) {
+                    LOG_WARN("Failed to push error result to output queue, id={}", task.id);
+                } else {
+                    LOG_INFO("Pushed error result (success=false) for failed detection, id={}", task.id);
+                }
+            }
+            
+            continue;
+        }
     }
 }
 
@@ -507,8 +537,8 @@ void OCRPipeline::recognitionLoop() {
         if (task.boxes.empty()) {
             // No boxes detected, push empty result
             if (outQueue_) {
-                outQueue_->push({std::vector<PipelineOCRResult>{}, task.image, task.id, task.config});
-                LOG_INFO("Pushed empty result to output queue, id={}", task.id);
+                outQueue_->push({std::vector<PipelineOCRResult>{}, task.image, task.id, task.config, true});
+                LOG_INFO("Pushed empty result (no text detected) to output queue, id={}", task.id);
             }
             continue;
         }
@@ -692,7 +722,7 @@ void OCRPipeline::finalizeRecognitionTask(std::shared_ptr<RecognitionTaskContext
     // 传递 task config 到 output
     if (outQueue_ && running_) {
         size_t resultCount = validResults.size();  // Save before move
-        while (running_ && !outQueue_->try_push({std::move(validResults), taskCtx->processedImage, taskCtx->taskId, taskCtx->config}, 
+        while (running_ && !outQueue_->try_push({std::move(validResults), taskCtx->processedImage, taskCtx->taskId, taskCtx->config, true}, 
                                                  std::chrono::milliseconds(500))) {
             LOG_WARN("Output queue full, waiting... id={}", taskCtx->taskId);
         }

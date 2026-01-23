@@ -109,7 +109,7 @@ OCR/
 │   ├── 📦 opencv              # Computer Vision
 │   ├── 📦 opencv_contrib      # Extra Modules (freetype)
 │   ├── 📦 crow                # HTTP Framework
-│   ├── 📦 pdfium              # PDF Rendering
+│   ├── 📦 poppler             # PDF Rendering
 │   ├── 📦 cpp-base64          # Base64 Encoding
 │   └── 📦 googletest          # Unit Testing Framework
 ├── 📂 engine/model_files      # Model Weights
