@@ -178,3 +178,5 @@ server/tests/results/test*
 output/
 download/
 blog/
+
+server/benchmark/docs/

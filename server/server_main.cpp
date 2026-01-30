@@ -252,7 +252,9 @@ int main(int argc, char* argv[]) {
         response["status"] = "healthy";
         response["service"] = "DeepX OCR Server";
         response["version"] = "1.0.0";
-        return crow::response(response.dump());
+        crow::response res(200, response.dump());
+        res.set_header("Content-Type", "application/json");
+        return res;
     });
     
     // OCR识别接口
