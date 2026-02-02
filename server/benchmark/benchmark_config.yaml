@@ -51,7 +51,6 @@ data:
 # ==================== 监控配置 ====================
 monitor:
   enable_system_monitor: true
-  enable_npu_monitor: true
   monitor_interval: 1.0  # 秒
 
 # ==================== 报告配置 ====================

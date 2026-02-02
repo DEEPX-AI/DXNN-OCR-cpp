@@ -3,6 +3,7 @@
 实现不同的测试场景（延迟、吞吐量、压力、稳定性、容量规划）
 """
 
+import json
 import time
 import asyncio
 import base64
@@ -51,7 +52,17 @@ class TestExecutor:
         params = self.config.ocr_params.to_dict()
         params["fileType"] = 0 if sample.get("type") == "pdf" else 1
         return params
-        
+
+    def _build_body_by_name(self) -> Dict[str, bytes]:
+        """预计算 Body 缓存"""
+        return {
+            s["name"]: json.dumps(
+                {"file": s["base64"], **self._ocr_params_for_sample(s)},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            for s in self.samples
+        }
+
     def load_samples(self):
         """加载测试样本"""
         if self.config.data.images_dir:
@@ -165,10 +176,7 @@ class LatencyTestExecutor(TestExecutor):
         print("=" * 70 + "\n")
         
         collector = MetricsCollector(test_name=self.config.scenario.name)
-        monitor = ResourceMonitor(
-            interval=self.config.monitor.monitor_interval,
-            enable_npu=self.config.monitor.enable_npu_monitor
-        )
+        monitor = ResourceMonitor(interval=self.config.monitor.monitor_interval)
         
         if self.config.monitor.enable_system_monitor:
             await monitor.start()
@@ -188,9 +196,11 @@ class LatencyTestExecutor(TestExecutor):
                 await client.warmup(
                     self.samples[0]['base64'],
                     self._ocr_params_for_sample(self.samples[0]),
-                    self.config.scenario.warmup_requests
+                    self.config.scenario.warmup_requests,
+                    concurrency=1
                 )
             
+            body_by_name = self._build_body_by_name()
             # 串行执行
             request_id = 0
             for idx, sample in enumerate(self.samples):
@@ -198,8 +208,7 @@ class LatencyTestExecutor(TestExecutor):
                 
                 for run_idx in range(self.config.scenario.runs_per_sample):
                     result = await client.send_ocr_request(
-                        sample['base64'],
-                        self._ocr_params_for_sample(sample),
+                        body_by_name[sample['name']],
                         request_id
                     )
                     
@@ -249,10 +258,7 @@ class ThroughputTestExecutor(TestExecutor):
         print("=" * 70 + "\n")
         
         collector = MetricsCollector(test_name=self.config.scenario.name)
-        monitor = ResourceMonitor(
-            interval=self.config.monitor.monitor_interval,
-            enable_npu=self.config.monitor.enable_npu_monitor
-        )
+        monitor = ResourceMonitor(interval=self.config.monitor.monitor_interval)
         
         if self.config.monitor.enable_system_monitor:
             await monitor.start()
@@ -272,19 +278,21 @@ class ThroughputTestExecutor(TestExecutor):
                 await client.warmup(
                     self.samples[0]['base64'],
                     self._ocr_params_for_sample(self.samples[0]),
-                    self.config.scenario.warmup_requests
+                    self.config.scenario.warmup_requests,
+                    concurrency=self.config.scenario.concurrency
                 )
             
+            body_by_name = self._build_body_by_name()
             # 构建任务列表
             tasks = []
             request_id = 0
-            
             for run_idx in range(self.config.scenario.runs_per_sample):
                 for sample in self.samples:
                     tasks.append({
                         'request_id': request_id,
                         'sample': sample,
-                        'run_idx': run_idx
+                        'run_idx': run_idx,
+                        'body': body_by_name[sample['name']]
                     })
                     request_id += 1
             
@@ -299,12 +307,11 @@ class ThroughputTestExecutor(TestExecutor):
                 """带并发限制的请求"""
                 async with semaphore:
                     start_time = time.time()
-                    sample = task_info['sample']
                     result = await client.send_ocr_request(
-                        sample['base64'],
-                        self._ocr_params_for_sample(sample),
+                        task_info['body'],
                         task_info['request_id']
                     )
+                    sample = task_info['sample']
                     
                     end_time = time.time()
                     
@@ -362,10 +369,7 @@ class StressTestExecutor(TestExecutor):
         
         collector = MetricsCollector(test_name=self.config.scenario.name)
         collector.stress_stage_results = []
-        monitor = ResourceMonitor(
-            interval=self.config.monitor.monitor_interval,
-            enable_npu=self.config.monitor.enable_npu_monitor
-        )
+        monitor = ResourceMonitor(interval=self.config.monitor.monitor_interval)
         
         if self.config.monitor.enable_system_monitor:
             await monitor.start()
@@ -383,8 +387,10 @@ class StressTestExecutor(TestExecutor):
                     self.samples[0]["base64"],
                     self._ocr_params_for_sample(self.samples[0]),
                     self.config.scenario.warmup_requests,
+                    concurrency=1,
                 )
             
+            body_by_name = self._build_body_by_name()
             request_id_gen = [0]
             samples_cycle = itertools.cycle(self.samples)
             
@@ -408,8 +414,7 @@ class StressTestExecutor(TestExecutor):
                                 request_id_gen[0] += 1
                                 start = time.time()
                                 result = await client.send_ocr_request(
-                                    sample["base64"],
-                                    self._ocr_params_for_sample(sample),
+                                    body_by_name[sample["name"]],
                                     rid,
                                 )
                                 end = time.time()
@@ -444,8 +449,7 @@ class StressTestExecutor(TestExecutor):
                         async with semaphore:
                             start = time.time()
                             result = await client.send_ocr_request(
-                                sample["base64"],
-                                self._ocr_params_for_sample(sample),
+                                body_by_name[sample["name"]],
                                 rid,
                             )
                             end = time.time()
@@ -500,10 +504,7 @@ class StabilityTestExecutor(TestExecutor):
         print("=" * 70 + "\n")
         
         collector = MetricsCollector(test_name=self.config.scenario.name)
-        monitor = ResourceMonitor(
-            interval=self.config.monitor.monitor_interval,
-            enable_npu=self.config.monitor.enable_npu_monitor
-        )
+        monitor = ResourceMonitor(interval=self.config.monitor.monitor_interval)
         
         if self.config.monitor.enable_system_monitor:
             await monitor.start()
@@ -521,8 +522,10 @@ class StabilityTestExecutor(TestExecutor):
                     self.samples[0]["base64"],
                     self._ocr_params_for_sample(self.samples[0]),
                     self.config.scenario.warmup_requests,
+                    concurrency=1,
                 )
             
+            body_by_name = self._build_body_by_name()
             samples_cycle = itertools.cycle(self.samples)
             request_id_gen = [0]
             stage_end = time.time() + duration
@@ -536,8 +539,7 @@ class StabilityTestExecutor(TestExecutor):
                         request_id_gen[0] += 1
                         start = time.time()
                         result = await client.send_ocr_request(
-                            sample["base64"],
-                            self._ocr_params_for_sample(sample),
+                            body_by_name[sample["name"]],
                             rid,
                         )
                         end = time.time()
@@ -586,10 +588,7 @@ class CapacityTestExecutor(TestExecutor):
         
         collector = MetricsCollector(test_name=self.config.scenario.name)
         collector.capacity_stage_results = []
-        monitor = ResourceMonitor(
-            interval=self.config.monitor.monitor_interval,
-            enable_npu=self.config.monitor.enable_npu_monitor
-        )
+        monitor = ResourceMonitor(interval=self.config.monitor.monitor_interval)
         
         if self.config.monitor.enable_system_monitor:
             await monitor.start()
@@ -607,8 +606,10 @@ class CapacityTestExecutor(TestExecutor):
                     self.samples[0]["base64"],
                     self._ocr_params_for_sample(self.samples[0]),
                     self.config.scenario.warmup_requests,
+                    concurrency=1,
                 )
             
+            body_by_name = self._build_body_by_name()
             request_id_base = [0]
             
             for concurrency in range(
@@ -628,8 +629,7 @@ class CapacityTestExecutor(TestExecutor):
                     async with semaphore:
                         start = time.time()
                         result = await client.send_ocr_request(
-                            sample["base64"],
-                            self._ocr_params_for_sample(sample),
+                            body_by_name[sample["name"]],
                             rid,
                         )
                         end = time.time()

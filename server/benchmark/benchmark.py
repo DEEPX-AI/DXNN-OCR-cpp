@@ -108,8 +108,6 @@ Test Modes:
     # 监控配置
     parser.add_argument("--no-monitor", action="store_true",
                         help="禁用资源监控")
-    parser.add_argument("--no-npu", action="store_true",
-                        help="禁用 NPU 监控")
     
     # 报告配置
     parser.add_argument("--output-dir", type=str,
@@ -170,8 +168,6 @@ def merge_config_with_args(config: BenchmarkConfig, args) -> BenchmarkConfig:
     # 监控配置
     if args.no_monitor:
         config.monitor.enable_system_monitor = False
-    if args.no_npu:
-        config.monitor.enable_npu_monitor = False
     
     # 报告配置
     if args.output_dir:

@@ -300,11 +300,15 @@ class MetricsCollector:
         stats.failed_requests = sum(1 for r in self.requests if r.status == RequestStatus.ERROR)
         stats.timeout_requests = sum(1 for r in self.requests if r.status == RequestStatus.TIMEOUT)
         
-        stats.total_duration_ms = (self.end_time - self.start_time) * 1000
-        
-        if stats.total_duration_ms > 0:
-            stats.qps = stats.total_requests * 1000.0 / stats.total_duration_ms
-            stats.success_qps = stats.successful_requests * 1000.0 / stats.total_duration_ms
+        # 负载窗口时间戳：[min(start_time), max(end_time)]
+        if self.requests:
+            load_start = min(r.start_time for r in self.requests)
+            load_end = max(r.end_time for r in self.requests)
+            load_duration_ms = (load_end - load_start) * 1000
+            stats.total_duration_ms = load_duration_ms
+            if load_duration_ms > 0:
+                stats.qps = stats.total_requests * 1000.0 / load_duration_ms
+                stats.success_qps = stats.successful_requests * 1000.0 / load_duration_ms
         
         if stats.total_requests > 0:
             stats.success_rate = stats.successful_requests * 100.0 / stats.total_requests

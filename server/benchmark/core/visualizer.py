@@ -215,26 +215,6 @@ class ChartGenerator:
             ax2.grid(True, alpha=0.3)
             ax2.set_ylim(0, 100)
             
-            # NPU 使用率（如果可用）
-            if timeline[0].get('npu_utilization', 0) > 0:
-                npu_usage = [m['npu_utilization'] for m in timeline]
-                
-                fig2, ax3 = plt.subplots(figsize=(14, 5))
-                ax3.plot(timestamps, npu_usage, color='#f093fb', linewidth=2, label='NPU Utilization')
-                ax3.fill_between(timestamps, npu_usage, alpha=0.3, color='#f093fb')
-                ax3.set_xlabel('Time (seconds)', fontsize=12, fontweight='bold')
-                ax3.set_ylabel('NPU Utilization (%)', fontsize=12, fontweight='bold')
-                ax3.set_title(f'NPU Utilization Over Time - {test_name}', fontsize=14, fontweight='bold')
-                ax3.legend(fontsize=10)
-                ax3.grid(True, alpha=0.3)
-                ax3.set_ylim(0, 100)
-                
-                npu_output_file = self.output_dir / f"{test_name}_npu_usage.png"
-                plt.tight_layout()
-                plt.savefig(npu_output_file, dpi=150, bbox_inches='tight')
-                plt.close(fig2)
-                print(f"✓ Chart saved: {npu_output_file}")
-            
             output_file = self.output_dir / f"{test_name}_resource_usage.png"
             plt.tight_layout()
             plt.savefig(output_file, dpi=150, bbox_inches='tight')

@@ -3,6 +3,7 @@
 提供高性能的异步请求能力
 """
 
+import json
 import time
 import asyncio
 import aiohttp
@@ -74,14 +75,83 @@ class AsyncHTTPClient:
         if self.session:
             await self.session.close()
     
-    async def send_ocr_request(self, file_base64: str, ocr_params: Dict[str, Any],
-                               request_id: int = 0) -> RequestResult:
+    async def _parse_ocr_response(self, response: aiohttp.ClientResponse,
+                                   latency_ms: float) -> RequestResult:
+        """解析 OCR 响应体并组装 RequestResult"""
+        try:
+            response_json = await response.json()
+        except Exception as e:
+            return RequestResult(
+                success=False,
+                status_code=response.status,
+                latency_ms=latency_ms,
+                error_msg=f"JSON decode error: {e}",
+                error_category=ErrorCategory.DECODE
+            )
+
+        if response.status != 200:
+            error_cat = ErrorCategory.HTTP_4XX if 400 <= response.status < 500 else ErrorCategory.HTTP_5XX
+            return RequestResult(
+                success=False,
+                status_code=response.status,
+                latency_ms=latency_ms,
+                error_msg=f"HTTP {response.status}",
+                error_category=error_cat,
+                response_json=response_json
+            )
+        error_code = response_json.get("errorCode", -1)
+
+        if error_code != 0:
+            return RequestResult(
+                success=False,
+                status_code=response.status,
+                latency_ms=latency_ms,
+                error_msg=response_json.get("errorMsg", "Unknown error"),
+                error_category=ErrorCategory.VALIDATION,
+                response_json=response_json
+            )
+        result = response_json.get("result", {})
+        
+        if "pages" in result:
+            pages = result.get("pages", [])
+            total_chars = 0
+            all_texts = []
+            for page in pages:
+                ocr_results = page.get("ocrResults", [])
+                for ocr in ocr_results:
+                    text = ocr.get("prunedResult", "")
+                    all_texts.append(text)
+                    total_chars += len(text)
+            return RequestResult(
+                success=True,
+                status_code=response.status,
+                latency_ms=latency_ms,
+                text="".join(all_texts),
+                char_count=total_chars,
+                page_count=result.get("renderedPages", 0),
+                ocr_results=pages,
+                response_json=response_json
+            )
+        ocr_results = result.get("ocrResults", [])
+        texts = [r.get("prunedResult", "") for r in ocr_results]
+        text = "".join(texts)
+        return RequestResult(
+            success=True,
+            status_code=response.status,
+            latency_ms=latency_ms,
+            text=text,
+            char_count=len(text),
+            page_count=0,
+            ocr_results=ocr_results,
+            response_json=response_json
+        )
+    
+    async def send_ocr_request(self, body: bytes, request_id: int = 0) -> RequestResult:
         """
         发送 OCR 请求
         
         Args:
-            file_base64: Base64 编码的文件
-            ocr_params: OCR 参数
+            body: UTF-8 编码的 JSON 字符串（已序列化的 payload）
             request_id: 请求 ID（用于日志）
         
         Returns:
@@ -91,102 +161,16 @@ class AsyncHTTPClient:
             "Content-Type": "application/json",
             "Authorization": f"token {self.token}"
         }
-        
-        payload = {
-            "file": file_base64,
-            **ocr_params
-        }
-        
         start_time = time.time()
-        
         try:
             async with self.session.post(
                 self.base_url,
                 headers=headers,
-                json=payload
+                data=body
             ) as response:
                 latency_ms = (time.time() - start_time) * 1000
-                
-                # 读取响应
-                try:
-                    response_json = await response.json()
-                except Exception as e:
-                    return RequestResult(
-                        success=False,
-                        status_code=response.status,
-                        latency_ms=latency_ms,
-                        error_msg=f"JSON decode error: {e}",
-                        error_category=ErrorCategory.DECODE
-                    )
-                
-                # 检查 HTTP 状态码
-                if response.status != 200:
-                    error_cat = ErrorCategory.HTTP_4XX if 400 <= response.status < 500 else ErrorCategory.HTTP_5XX
-                    return RequestResult(
-                        success=False,
-                        status_code=response.status,
-                        latency_ms=latency_ms,
-                        error_msg=f"HTTP {response.status}",
-                        error_category=error_cat,
-                        response_json=response_json
-                    )
-                
-                # 检查业务错误码
-                error_code = response_json.get("errorCode", -1)
-                if error_code != 0:
-                    return RequestResult(
-                        success=False,
-                        status_code=response.status,
-                        latency_ms=latency_ms,
-                        error_msg=response_json.get("errorMsg", "Unknown error"),
-                        error_category=ErrorCategory.VALIDATION,
-                        response_json=response_json
-                    )
-                
-                # 解析 OCR 结果
-                result = response_json.get("result", {})
-                
-                # 判断是图像还是 PDF
-                if "pages" in result:
-                    # PDF 结果
-                    pages = result.get("pages", [])
-                    total_chars = 0
-                    all_texts = []
-                    
-                    for page in pages:
-                        ocr_results = page.get("ocrResults", [])
-                        for ocr in ocr_results:
-                            text = ocr.get("prunedResult", "")
-                            all_texts.append(text)
-                            total_chars += len(text)
-                    
-                    return RequestResult(
-                        success=True,
-                        status_code=response.status,
-                        latency_ms=latency_ms,
-                        text="".join(all_texts),
-                        char_count=total_chars,
-                        page_count=result.get("renderedPages", 0),
-                        ocr_results=pages,
-                        response_json=response_json
-                    )
-                else:
-                    # 图像结果
-                    ocr_results = result.get("ocrResults", [])
-                    texts = [r.get("prunedResult", "") for r in ocr_results]
-                    text = "".join(texts)
-                    
-                    return RequestResult(
-                        success=True,
-                        status_code=response.status,
-                        latency_ms=latency_ms,
-                        text=text,
-                        char_count=len(text),
-                        page_count=0,
-                        ocr_results=ocr_results,
-                        response_json=response_json
-                    )
-        
+                return await self._parse_ocr_response(response, latency_ms)
+
         except asyncio.TimeoutError:
             return RequestResult(
                 success=False,
@@ -195,7 +179,7 @@ class AsyncHTTPClient:
                 error_msg="Request timeout",
                 error_category=ErrorCategory.TIMEOUT
             )
-        
+
         except asyncio.CancelledError:
             return RequestResult(
                 success=False,
@@ -204,7 +188,7 @@ class AsyncHTTPClient:
                 error_msg="Request cancelled",
                 error_category=ErrorCategory.TIMEOUT
             )
-        
+
         except aiohttp.ClientError as e:
             return RequestResult(
                 success=False,
@@ -213,7 +197,7 @@ class AsyncHTTPClient:
                 error_msg=f"Connection error: {e}",
                 error_category=ErrorCategory.CONNECTION
             )
-        
+
         except Exception as e:
             return RequestResult(
                 success=False,
@@ -224,7 +208,7 @@ class AsyncHTTPClient:
             )
     
     async def warmup(self, file_base64: str, ocr_params: Dict[str, Any],
-                     warmup_count: int = 5) -> tuple[int, int]:
+                     warmup_count: int = 5, concurrency: int = 1) -> tuple[int, int]:
         """
         预热阶段
         
@@ -232,25 +216,41 @@ class AsyncHTTPClient:
             file_base64: 预热用的文件
             ocr_params: OCR 参数
             warmup_count: 预热请求数量
+            concurrency: 并发数
         
         Returns:
             (成功数, 总数)
         """
-        print(f"\n[Warmup] Starting warmup with {warmup_count} requests...")
+        body = json.dumps({"file": file_base64, **ocr_params}, ensure_ascii=False).encode("utf-8")
+        if concurrency > 1:
+            print(f"\n[Warmup] Concurrent warmup ({concurrency}) with {warmup_count} requests...")
+        else:
+            print(f"\n[Warmup] Starting warmup with {warmup_count} requests...")
         
-        success_count = 0
-        for i in range(warmup_count):
-            result = await self.send_ocr_request(file_base64, ocr_params, request_id=-i-1)
-            
-            if result.success:
-                success_count += 1
-                print(f"  Warmup {i+1}/{warmup_count}: {result.latency_ms:.2f}ms ✓")
-            else:
-                print(f"  Warmup {i+1}/{warmup_count}: {result.error_msg} ✗")
+        if concurrency <= 1:
+            success_count = 0
+            for i in range(warmup_count):
+                result = await self.send_ocr_request(body, request_id=-i-1)
+                if result.success:
+                    success_count += 1
+                    print(f"  Warmup {i+1}/{warmup_count}: {result.latency_ms:.2f}ms ✓")
+                else:
+                    print(f"  Warmup {i+1}/{warmup_count}: {result.error_msg} ✗")
+        else:
+            semaphore = asyncio.Semaphore(concurrency)
+            async def _one_warmup(i: int):
+                async with semaphore:
+                    return await self.send_ocr_request(body, request_id=-i-1)
+            results = await asyncio.gather(*[_one_warmup(i) for i in range(warmup_count)])
+            success_count = sum(1 for r in results if r.success)
+            for i, r in enumerate(results):
+                status = "✓" if r.success else "✗"
+                msg = f"{r.latency_ms:.2f}ms" if r.success else r.error_msg
+                print(f"  Warmup {i+1}/{warmup_count}: {msg} {status}")
         
         success_rate = success_count / warmup_count * 100
         print(f"[Warmup] Completed: {success_count}/{warmup_count} ({success_rate:.0f}% success)\n")
-        
+
         return success_count, warmup_count
     
     async def health_check(self, health_url: Optional[str] = None) -> bool:

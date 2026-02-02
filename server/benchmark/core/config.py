@@ -102,7 +102,6 @@ class DataConfig:
 class MonitorConfig:
     """监控配置"""
     enable_system_monitor: bool = True
-    enable_npu_monitor: bool = True
     monitor_interval: float = 1.0      # 监控采样间隔（秒）
     
     def to_dict(self) -> dict:
@@ -157,12 +156,16 @@ class BenchmarkConfig:
     @classmethod
     def from_dict(cls, data: dict) -> 'BenchmarkConfig':
         """从字典创建配置"""
+        m = data.get("monitor", {})
         return cls(
             server=ServerConfig(**data.get("server", {})),
             ocr_params=OCRParams(**data.get("ocr_params", {})),
             scenario=TestScenario.from_dict(data.get("scenario", {})),
             data=DataConfig(**data.get("data", {})),
-            monitor=MonitorConfig(**data.get("monitor", {})),
+            monitor=MonitorConfig(
+                enable_system_monitor=m.get("enable_system_monitor", True),
+                monitor_interval=m.get("monitor_interval", 1.0),
+            ),
             report=ReportConfig(**data.get("report", {})),
         )
     

@@ -54,9 +54,9 @@ class MarkdownReportGenerator(ReportGenerator):
         lines.append("|--------|-------|")
         lines.append(f"| **Total Requests** | {metrics.throughput.total_requests} |")
         lines.append(f"| **Success Rate** | {metrics.throughput.success_rate:.2f}% |")
-        lines.append(f"| **QPS (Throughput)** | **{metrics.throughput.qps:.2f}** |")
+        lines.append(f"| **QPS** | **{metrics.throughput.qps:.2f}** |")
         lines.append(f"| **Success QPS** | {metrics.throughput.success_qps:.2f} |")
-        lines.append(f"| **Total Duration** | {metrics.throughput.total_duration_ms:.2f} ms |")
+        lines.append(f"| **Total Duration (ms)** | {metrics.throughput.total_duration_ms:.2f} |")
         lines.append("")
         
         # Latency Statistics
@@ -119,16 +119,6 @@ class MarkdownReportGenerator(ReportGenerator):
                 lines.append(f"| Average | {monitor_summary['memory']['avg']:.2f}% |")
                 lines.append(f"| Max | {monitor_summary['memory']['max']:.2f}% |")
                 lines.append(f"| Min | {monitor_summary['memory']['min']:.2f}% |")
-                lines.append("")
-            
-            if 'npu' in monitor_summary:
-                lines.append("### NPU (DXRT)")
-                lines.append("| Metric | Value |")
-                lines.append("|--------|-------|")
-                lines.append(f"| Avg Utilization | {monitor_summary['npu']['utilization']['avg']:.2f}% |")
-                lines.append(f"| Max Utilization | {monitor_summary['npu']['utilization']['max']:.2f}% |")
-                lines.append(f"| Avg Memory | {monitor_summary['npu']['memory_mb']['avg']:.2f} MB |")
-                lines.append(f"| Max Memory | {monitor_summary['npu']['memory_mb']['max']:.2f} MB |")
                 lines.append("")
         
         # Stress 测试：每档并发结果
@@ -349,7 +339,7 @@ class HTMLReportGenerator(ReportGenerator):
                 <h2>📊 Performance Summary</h2>
                 <div class="metrics-grid">
                     <div class="metric-card">
-                        <div class="label">QPS (Throughput)</div>
+                        <div class="label">QPS</div>
                         <div class="value">{metrics.throughput.qps:.2f}</div>
                         <div class="unit">requests/sec</div>
                     </div>
@@ -366,6 +356,10 @@ class HTMLReportGenerator(ReportGenerator):
                         <div class="label">P99 Latency</div>
                         <div class="value">{metrics.latency.p99:.2f}</div>
                         <div class="unit">ms</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="label">Total Duration (ms)</div>
+                        <div class="value">{metrics.throughput.total_duration_ms:.2f}</div>
                     </div>
                     <div class="metric-card">
                         <div class="label">Total Requests</div>
