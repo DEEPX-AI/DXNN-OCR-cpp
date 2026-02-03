@@ -72,8 +72,11 @@ class TestExecutor:
             self._load_pdfs(self.config.data.pdfs_dir)
         
         # 加载 ground truth
-        if self.config.data.labels_file:
-            self._load_ground_truth(self.config.data.labels_file)
+        labels_path = self.config.data.labels_file
+        if not labels_path and self.config.data.images_dir:
+            labels_path = str(Path(self.config.data.images_dir) / "labels.json")
+        if labels_path:
+            self._load_ground_truth(labels_path)
         
         # 限制样本数量
         if self.config.data.max_samples > 0:
@@ -439,23 +442,30 @@ class StressTestExecutor(TestExecutor):
                     workers = [asyncio.create_task(worker(stage_end, concurrency)) for _ in range(concurrency)]
                     await asyncio.gather(*workers)
                 else:
-                    # 每档一轮：固定任务数（与 throughput 单轮等价）
-                    tasks = []
+                    # 每档一轮
+                    stage_tasks = []
                     for _ in range(self.config.scenario.runs_per_sample):
                         for s in self.samples:
-                            tasks.append((s, request_id_gen[0]))
+                            rid = request_id_gen[0]
                             request_id_gen[0] += 1
-                    for sample, rid in tasks:
+                            stage_tasks.append({
+                                "body": body_by_name[s["name"]],
+                                "request_id": rid,
+                                "sample": s,
+                                "stress_stage": concurrency,
+                            })
+
+                    async def bounded_request(task_info):
                         async with semaphore:
                             start = time.time()
                             result = await client.send_ocr_request(
-                                body_by_name[sample["name"]],
-                                rid,
+                                task_info["body"],
+                                task_info["request_id"],
                             )
                             end = time.time()
                             m = RequestMetrics(
-                                request_id=rid,
-                                sample_name=sample["name"],
+                                request_id=task_info["request_id"],
+                                sample_name=task_info["sample"]["name"],
                                 status=RequestStatus.SUCCESS if result.success else RequestStatus.ERROR,
                                 start_time=start,
                                 end_time=end,
@@ -467,9 +477,11 @@ class StressTestExecutor(TestExecutor):
                                 page_count=result.page_count,
                                 text=result.text,
                                 run_index=0,
-                                metadata={"stress_stage": concurrency},
+                                metadata={"stress_stage": task_info["stress_stage"]},
                             )
                             await collector.add_request(m)
+
+                    await asyncio.gather(*[bounded_request(t) for t in stage_tasks])
                 
                 stage_end_time = time.time()
                 stage_requests = [r for r in collector.requests if r.metadata.get("stress_stage") == concurrency]
@@ -619,23 +631,29 @@ class CapacityTestExecutor(TestExecutor):
             ):
                 stage_start = time.time()
                 semaphore = asyncio.Semaphore(concurrency)
-                tasks = []
+                stage_tasks = []
                 for _ in range(self.config.scenario.runs_per_sample):
                     for s in self.samples:
-                        tasks.append((s, request_id_base[0]))
+                        rid = request_id_base[0]
                         request_id_base[0] += 1
-                
-                for sample, rid in tasks:
+                        stage_tasks.append({
+                            "body": body_by_name[s["name"]],
+                            "request_id": rid,
+                            "sample": s,
+                            "capacity_stage": concurrency,
+                        })
+
+                async def bounded_request(task_info):
                     async with semaphore:
                         start = time.time()
                         result = await client.send_ocr_request(
-                            body_by_name[sample["name"]],
-                            rid,
+                            task_info["body"],
+                            task_info["request_id"],
                         )
                         end = time.time()
                         m = RequestMetrics(
-                            request_id=rid,
-                            sample_name=sample["name"],
+                            request_id=task_info["request_id"],
+                            sample_name=task_info["sample"]["name"],
                             status=RequestStatus.SUCCESS if result.success else RequestStatus.ERROR,
                             start_time=start,
                             end_time=end,
@@ -647,10 +665,12 @@ class CapacityTestExecutor(TestExecutor):
                             page_count=result.page_count,
                             text=result.text,
                             run_index=0,
-                            metadata={"capacity_stage": concurrency},
+                            metadata={"capacity_stage": task_info["capacity_stage"]},
                         )
                         await collector.add_request(m)
-                
+
+                await asyncio.gather(*[bounded_request(t) for t in stage_tasks])
+
                 stage_end_time = time.time()
                 stage_requests = [r for r in collector.requests if r.metadata.get("capacity_stage") == concurrency]
                 stage_stats = _compute_stage_stats(stage_requests, stage_start, stage_end_time)

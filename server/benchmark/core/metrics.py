@@ -52,6 +52,7 @@ class RequestMetrics:
     char_count: int = 0
     page_count: int = 0
     text: str = ""
+    accuracy: Optional[float] = None
     
     # 额外信息
     run_index: int = 0
@@ -258,7 +259,7 @@ class MetricsCollector:
         metrics.errors = self._compute_error_stats()
         
         # 计算每个样本的统计
-        metrics.per_sample_stats = self._compute_per_sample_stats()
+        metrics.per_sample_stats = self._compute_per_sample_stats(ground_truth)
         
         # 生成时间序列数据
         metrics.timeline = self._generate_timeline()
@@ -332,30 +333,26 @@ class MetricsCollector:
             stats.cps = stats.total_chars / duration_s
             stats.pps = stats.total_pages / duration_s
         
-        # 计算准确率
+        # 准确率：
         if ground_truth:
-            stats.accuracy = self._compute_accuracy(successful, ground_truth)
-        
+            stats.accuracy = self._compute_accuracy_jiwer(successful, ground_truth)
+
         return stats
-    
-    def _compute_accuracy(self, requests: List[RequestMetrics], 
-                         ground_truth: Dict[str, str]) -> float:
-        """计算字符级准确率"""
-        import difflib
-        
-        total_ratio = 0.0
-        count = 0
-        
+
+    def _compute_accuracy_jiwer(self, requests: List[RequestMetrics],
+                                ground_truth: Dict[str, str]) -> float:
+        """使用 jiwer + 归一化计算字符级准确率（0~100）"""
+        from .accuracy import character_accuracy_from_cer
+
+        accs = []
         for req in requests:
-            if req.sample_name in ground_truth:
-                predicted = req.text
-                expected = ground_truth[req.sample_name]
-                
-                matcher = difflib.SequenceMatcher(None, predicted, expected)
-                total_ratio += matcher.ratio()
-                count += 1
-        
-        return (total_ratio / count * 100) if count > 0 else 0.0
+            if req.sample_name not in ground_truth:
+                continue
+            expected = ground_truth[req.sample_name]
+            acc = character_accuracy_from_cer(expected, req.text)
+            if acc is not None:
+                accs.append(acc)
+        return round(float(np.mean(accs)), 2) if accs else 0.0
     
     def _compute_error_stats(self) -> ErrorStats:
         """计算错误统计"""
@@ -378,20 +375,21 @@ class MetricsCollector:
         
         return stats
     
-    def _compute_per_sample_stats(self) -> Dict[str, Dict]:
+    def _compute_per_sample_stats(self, ground_truth: Optional[Dict[str, str]] = None) -> Dict[str, Dict]:
         """计算每个样本的统计"""
+        from .accuracy import character_accuracy_from_cer
+
         samples = defaultdict(list)
-        
         for req in self.requests:
             samples[req.sample_name].append(req)
-        
+
         per_sample = {}
         for sample_name, reqs in samples.items():
             successful = [r for r in reqs if r.status == RequestStatus.SUCCESS]
-            
+
             if successful:
                 latencies = [r.latency_ms for r in successful]
-                per_sample[sample_name] = {
+                entry = {
                     "total_runs": len(reqs),
                     "successful_runs": len(successful),
                     "avg_latency_ms": round(np.mean(latencies), 2),
@@ -400,13 +398,23 @@ class MetricsCollector:
                     "char_count": successful[0].char_count,
                     "page_count": successful[0].page_count,
                 }
+                if ground_truth and sample_name in ground_truth:
+                    expected = ground_truth[sample_name]
+                    accs = []
+                    for r in successful:
+                        acc = character_accuracy_from_cer(expected, r.text)
+                        if acc is not None:
+                            accs.append(acc)
+                    if accs:
+                        entry["accuracy"] = round(float(np.mean(accs)), 2)
+                per_sample[sample_name] = entry
             else:
                 per_sample[sample_name] = {
                     "total_runs": len(reqs),
                     "successful_runs": 0,
                     "error": "All runs failed"
                 }
-        
+
         return per_sample
     
     def _generate_timeline(self) -> List[Dict]:

@@ -167,16 +167,20 @@ build_api_benchmark/
 3rd-party/poppler/build/
 3rd-party/poppler/install/
 
-results_mobile/
-results_server/
-vis_mobile/
-vis_server/
 engine/model_files/
+
+benchmark/results_mobile/
+benchmark/results_server/
+benchmark/vis_mobile/
+benchmark/vis_server/
+
+server/tests/results/
+server/benchmark/results/
+
 test/pipeline/
-server/tests/results/test*
 
 output/
 download/
 blog/
 
-server/benchmark/docs/
+

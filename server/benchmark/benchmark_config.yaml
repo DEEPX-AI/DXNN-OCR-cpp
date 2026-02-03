@@ -43,7 +43,7 @@ scenario:
 data:
   images_dir: ../../images
   pdfs_dir: null
-  labels_file: null  # ../../images/labels.json
+  labels_file: null  # 默认使用 images_dir/labels.json
   file_pattern: "*.*"
   max_samples: 0  # 0 表示使用所有样本
   shuffle: false

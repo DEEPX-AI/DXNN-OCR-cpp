@@ -236,90 +236,114 @@ http://localhost:7860
 
 ## 🧪 基准测试
 
-使用 `benchmark/run.sh` 统一入口进行性能测试。
+基于 **OCR API Server Benchmark Framewore**，支持多种测试模式、资源监控与多格式报告
+测试前请先启动 OCR 服务
+```bash
+cd server
 
-### 📊 测试模式
+./run_server.sh
+```
 
-| 模式 | 说明 | 命令 |
+### 🚀 快捷启动（推荐）
+
+使用交互式脚本选择常见测试场景：
+
+```bash
+cd server/benchmark
+./quick_start.sh
+```
+
+菜单选项：
+
+| 选项 | 模式 | 说明 |
 |------|------|------|
-| `image` | Image OCR 测试 | `./run.sh --mode image` |
-| `pdf` | PDF OCR 测试 | `./run.sh --mode pdf` |
+| 1 | **Latency Test** | 串行测试，测量单请求延迟 |
+| 2 | **Throughput Test** | 并发测试，测量系统吞吐量 (QPS) |
+| 3 | **Stress Test** | 压力测试，逐步增加负载 |
+| 4 | **Stability Test** | 稳定性测试，长时间运行 |
+| 5 | **Capacity Test** | 容量规划，寻找最优并发数 |
+| 6 | **Custom** | 使用配置文件 `benchmark_config.yaml` 运行 |
+| 7 | **Generate Config** | 生成默认配置文件 |
 
-### 🛠️ 通用参数
+### 📊 测试模式（命令行）
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `-p, --port` | 服务器端口 | 8080 |
-| `-m, --model` | 模型类型: `server` / `mobile` | server |
-| `-r, --runs` | 每个测试项运行次数 | 1 |
-| `-c, --concurrency` | 并发数 | 1 |
-| `-s, --skip-server` | 跳过启动服务器（使用已运行的服务） | - |
-| `-k, --keep-server` | 测试完成后保持服务器运行 | - |
-| `-i, --images` | 测试图片目录 | `../../images` |
-| `--pdfs` | 测试 PDF 目录 | `../pdf_file` |
-| `--dpi` | PDF 渲染 DPI | 150 |
-| `--max-pages` | PDF 最大处理页数 | 100 |
-| `-h, --help` | 显示帮助 | - |
+直接使用 `benchmark.py` 时可指定 `--mode`：
+
+| 模式 | 说明 |
+|------|------|
+| `latency` | 串行请求，测量单请求延迟 |
+| `throughput` | 并发请求，测量吞吐量 |
+| `stress` | 压力测试，逐步增加并发 |
+| `stability` | 稳定性测试，长时间运行 |
+| `capacity` | 容量规划，扫描最优并发数 |
+
+### 🛠️ 常用参数
+
+| 参数 | 说明 | 默认/示例 |
+|------|------|------------|
+| `--config`, `-c` | 配置文件路径 (YAML/JSON) | `benchmark_config.yaml` |
+| `--mode` | 测试模式 | latency / throughput / stress / stability / capacity |
+| `--url` | 服务器 OCR 接口 URL | http://localhost:8080/ocr |
+| `--token` | 认证 token | test_token |
+| `--timeout` | 请求超时（秒） | 60 |
+| `--images` | 图片目录 | 需指定，如 `../../images` |
+| `--pdfs` | PDF 目录 | 可选 |
+| `--max-samples` | 最大样本数，0=全部 | 0 |
+| `--concurrency` | 并发数 | 依模式 |
+| `--runs` | 每样本运行次数 | 1 |
+| `--warmup` | 预热请求数 | 5 或 10 |
+| `--duration` | 测试时长（秒），0=跑完所有样本 | 0（stability 默认 600） |
+| `--max-concurrency` | 压力/容量测试最大并发 | 100 |
+| `--concurrency-step` | 压力/容量测试并发步长 | 5 |
+| `--pdf-dpi` | PDF 渲染 DPI | 150 |
+| `--pdf-max-pages` | PDF 最大页数 | 100 |
+| `--no-monitor` | 禁用资源监控 | - |
+| `--output-dir` | 报告输出目录 | results |
+| `--formats` | 报告格式 | markdown json html（可加 csv） |
+| `--no-charts` | 不生成图表 | - |
+| `--generate-config` | 生成默认配置并退出 | - |
 
 ### 📝 使用示例
 
 ```bash
 cd server/benchmark
 
-# Image OCR 测试（默认模式）
-./run.sh
+# 使用配置文件运行
+python3 benchmark.py --config benchmark_config.yaml
 
-# Image OCR 测试，4 并发
-./run.sh --mode image -c 4
+# 快速延迟测试（串行，20 次运行，10 次预热）
+python3 benchmark.py --mode latency --images ../../images --runs 20 --warmup 10
 
-# PDF OCR 测试，指定 DPI
-./run.sh --mode pdf --dpi 200 --max-pages 50
+# 吞吐量测试（10 并发）
+python3 benchmark.py --mode throughput --images ../../images --concurrency 10 --runs 20 --warmup 10
+
+# 压力测试
+python3 benchmark.py --mode stress --images ../../images --runs 5 --warmup 10
+
+# 生成默认配置文件
+python3 benchmark.py --generate-config
 ```
-
-### 🔀 并发模式说明
-
-| 模式 | 参数 | 说明 |
-|------|------|------|
-| 串行模式 | `-c 1` | 逐个请求，测量单请求延迟 (Latency) |
-| 异步模式 | `-c N` (N>1) | 先发后收，测量系统吞吐量 (QPS) |
-
-> **💡 提示**: 异步模式使用 `aiohttp` 实现先发后收，充分利用服务器 Pipeline 并行处理能力。
 
 ### 📄 测试结果输出
 
+报告与图表写入 `benchmark/results/`（或 `--output-dir` 指定目录），文件名前缀为场景名（如配置中 `scenario.name`，默认可为 `default` 等）：
+
 ```
 benchmark/results/
-├── API_benchmark_report.md          # Image OCR 报告
-├── api_benchmark_results.json       # Image OCR 结果
-├── PDF_benchmark_report.md          # PDF OCR 报告
-└── pdf_benchmark_results.json       # PDF OCR 结果
+├── {test_name}_report.md      # Markdown 报告
+├── {test_name}_report.html    # HTML 报告
+├── {test_name}_results.json   # JSON 结果
+├── {test_name}_results.csv    # CSV（可选）
+├── {test_name}_latency_distribution.png
+├── {test_name}_latency_percentiles.png
+├── {test_name}_timeline.png
+├── {test_name}_resource_usage.png
+└── {test_name}_per_sample_comparison.png
 ```
 
-<details>
-<summary><b>🔄 单独运行 Python 脚本</b></summary>
+### 📋 配置文件
 
-如果需要更精细的控制，可以直接运行 Python 脚本：
-
-```bash
-cd server/benchmark
-
-# Image OCR 测试（4 并发，每张图片运行 3 次）
-python3 run_api_benchmark.py -i "../../images" -r 3 -c 4
-
-# PDF OCR 测试（DPI 150，最多处理 10 页）
-python3 run_pdf_benchmark.py -p "../pdf_file" --dpi 150 --max-pages 10
-```
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `-i, --images` | 测试图片目录 | ../../images |
-| `-p, --pdfs` | 测试 PDF 目录 | ../pdf_file |
-| `-r, --runs` | 每项运行次数 | 1 |
-| `-c, --concurrency` | 并发数量 | 10 (image) / 1 (pdf) |
-| `--dpi` | PDF 渲染 DPI | 150 |
-| `--max-pages` | PDF 最大处理页数 | 100 |
-
-</details>
+通过 `benchmark_config.yaml` 可配置服务器 URL、OCR 参数、并发/时长、数据路径、监控与报告格式等。使用 `python3 benchmark.py --generate-config` 可生成 `benchmark_config.yaml` 与 `benchmark_config.json` 模板。
 
 ---
 
@@ -346,27 +370,28 @@ cd server/tests
 
 ```
 server/
-├── 📜 server_main.cpp        # 服务入口
-├── 📜 ocr_handler.cpp/h      # OCR 请求处理器
-├── 📜 pdf_handler.cpp/h      # PDF 渲染处理器（基于 Poppler）
-├── 📜 file_handler.cpp/h     # 文件处理（Base64/URL）
-├── 📜 json_response.cpp/h    # JSON 响应构建器
-├── 📂 webui/                 # Gradio Web UI
-│   ├── 📜 app.py             # 主应用
-│   ├── 📜 requirements.txt   # Python 依赖
-│   ├── 📂 examples/          # 图片示例 (8 个)
-│   ├── 📂 examples_pdf/      # PDF 示例 (10 个)
-│   └── 📂 res/               # 资源文件 (Banner 等)
-├── 📂 benchmark/             # 基准测试工具
-│   ├── 📜 run.sh             # 统一测试入口
-│   ├── 📜 run_api_benchmark.py   # Image API 测试
-│   ├── 📜 run_pdf_benchmark.py   # PDF API 测试
-│   └── 📂 results/           # 测试结果输出
-├── 📂 pdf_file/              # 测试 PDF 文件
-└── 📂 tests/                 # 单元测试
-    ├── 📜 run_pdf_ocr_test.sh    # PDF 测试启动脚本
-    ├── 📜 test_pdf_ocr.py        # PDF OCR 测试
-    ├── 📜 test_*.cpp             # C++ 单元测试
-    └── 📂 results/               # 测试结果
+├── 📜 server_main.cpp              # 服务入口
+├── 📜 ocr_handler.cpp/h            # OCR 请求处理器
+├── 📜 pdf_handler.cpp/h            # PDF 渲染处理器（基于 Poppler）
+├── 📜 file_handler.cpp/h           # 文件处理（Base64/URL）
+├── 📜 json_response.cpp/h          # JSON 响应构建器
+├── 📂 webui/                       # Gradio Web UI
+│   ├── 📜 app.py                   # 主应用
+│   ├── 📜 requirements.txt         # Python 依赖
+│   ├── 📂 examples/                # 图片示例 (8 个)
+│   ├── 📂 examples_pdf/            # PDF 示例 (10 个)
+│   └── 📂 res/                     # 资源文件 (Banner 等)
+├── 📂 benchmark/                   # 基准测试框架
+│   ├── 📜 benchmark.py             # 主入口
+│   ├── 📜 quick_start.sh           # 快捷交互式测试脚本
+│   ├── 📜 benchmark_config.yaml    # 配置示例
+│   ├── 📂 core/                    # 核心模块（config/client/executor/metrics/reporter/visualizer 等）
+│   └── 📂 results/                 # 测试结果与图表输出
+├── 📂 pdf_file/                    # 测试 PDF 文件
+└── 📂 tests/                       # 单元测试
+    ├── 📜 run_pdf_ocr_test.sh      # PDF 测试启动脚本
+    ├── 📜 test_pdf_ocr.py          # PDF OCR 测试
+    ├── 📜 test_*.cpp               # C++ 单元测试
+    └── 📂 results/                 # 测试结果
 ```
 

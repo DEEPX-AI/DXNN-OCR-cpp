@@ -159,7 +159,7 @@ python3 benchmark/run_benchmark.py --model mobile
 
 #### x86 Platform
 
-**Test Configuration** (from `docs/result/x86/` reports):
+**Test Configuration** (from `docs/results/local/x86/` reports):
 - Model: PP-OCR v5 (DEEPX NPU acceleration)
 - Dataset Size: 20 images
 - Success Rate: 100% (20/20)
@@ -181,15 +181,15 @@ python3 benchmark/run_benchmark.py --model mobile
 **Detailed Reports**:
 | Setup | Server | Mobile |
 |---|---|---|
-| Single Card | [Report](docs/result/x86/DXNN-OCR_benchmark_report_singlecard_server.md) | [Report](docs/result/x86/DXNN-OCR_benchmark_report_singlecard_mobile.md) |
-| Dual Cards | [Report](docs/result/x86/DXNN-OCR_benchmark_report_dualcards_server.md) | [Report](docs/result/x86/DXNN-OCR_benchmark_report_dualcards_mobile.md) |
-| Three Cards | [Report](docs/result/x86/DXNN-OCR_benchmark_report_threecards_server.md) | [Report](docs/result/x86/DXNN-OCR_benchmark_report_threecards_mobile.md) |
+| Single Card | [Report](docs/results/local/x86/DXNN-OCR_benchmark_report_singlecard_server.md) | [Report](docs/results/local/x86/DXNN-OCR_benchmark_report_singlecard_mobile.md) |
+| Dual Cards | [Report](docs/results/local/x86/DXNN-OCR_benchmark_report_dualcards_server.md) | [Report](docs/results/local/x86/DXNN-OCR_benchmark_report_dualcards_mobile.md) |
+| Three Cards | [Report](docs/results/local/x86/DXNN-OCR_benchmark_report_threecards_server.md) | [Report](docs/results/local/x86/DXNN-OCR_benchmark_report_threecards_mobile.md) |
 
 ---
 
 #### ARM Platform (Rockchip aarch64)
 
-**Test Configuration** (from `docs/result/arm/` reports):
+**Test Configuration** (from `docs/results/local/arm/` reports):
 - Model: PP-OCR v5 (DEEPX NPU acceleration)
 - Dataset Size: 20 images
 - Success Rate: 100% (20/20)
@@ -203,8 +203,8 @@ python3 benchmark/run_benchmark.py --model mobile
 **Detailed Reports**:
 | Model | Report |
 |---|---|
-| Server | [Report](docs/result/arm/DXNN-OCR_benchmark_report_server.md) |
-| Mobile | [Report](docs/result/arm/DXNN-OCR_benchmark_report_mobile.md) |
+| Server | [Report](docs/results/local/arm/DXNN-OCR_benchmark_report_server.md) |
+| Mobile | [Report](docs/results/local/arm/DXNN-OCR_benchmark_report_mobile.md) |
 
 <details>
 <summary><b>🔄 Reproduce Benchmark Results</b></summary>
@@ -215,17 +215,17 @@ To reproduce the benchmark results above, run the following commands:
 # 1. Build the project
 ./build.sh
 
-# 2. Download/Setup models
+# 2. Download/setup models
 ./setup.sh
 
-# 3. Set DXRT environment variables (Example)
+# 3. Set DXRT environment variables (example)
 source ./set_env.sh 3 2 1 3 2 4
 
-# 4. Run benchmark (Server model, 60 runs per image)
+# 4. Run benchmark (server model, 60 runs per image)
 python3 benchmark/run_benchmark.py --model server --runs 60 \
     --images_dir test/twocode_images
 
-# 5. Run benchmark (Mobile model, 60 runs per image)
+# 5. Run benchmark (mobile model, 60 runs per image)
 python3 benchmark/run_benchmark.py --model mobile --runs 60 \
     --images_dir test/twocode_images
 ```
@@ -243,16 +243,81 @@ python3 benchmark/run_benchmark.py --model mobile --runs 60 \
 
 ---
 
-## 🌐 OCR Server
+### 📡 API Server Benchmark
+
+**Test configuration** (same across all reports):
+- Mode: throughput
+- Concurrency: 10
+- Runs per sample: 20
+
+#### x86 Platform
+
+| Setup | QPS | Success Rate | CPS (chars/s) | Accuracy | Avg Latency (ms) | P50 (ms) | P99 (ms) |
+|---|--:|---:|---:|---:|---:|---:|---:|
+| Single Card | 2.04 | 100% | 984.43 | 86.06% | 4846.49 | 4567.16 | 13053.77 |
+| Dual Cards | 3.71 | 100% | 1764.40 | 86.06% | 2660.18 | 2422.49 | 7143.42 |
+| Three Cards | 4.48 | 100% | 2158.43 | 86.06% | 2209.89 | 1956.82 | 6652.21 |
+
+**Detailed reports**:
+| Setup | Report |
+|---|---|
+| Single Card | [Report](docs/results/server/x86/DXNN-OCR_Server_benchmark_report_singlecard.md) |
+| Dual Cards | [Report](docs/results/server/x86/DXNN-OCR_Server_benchmark_report_dualcards.md) |
+| Three Cards | [Report](docs/results/server/x86/DXNN-OCR_Server_benchmark_report_threecards.md) |
+
+#### ARM Platform (Rockchip aarch64)
+
+| Metric | Value |
+|---|--:|
+| **QPS** | 2.06 |
+| Success Rate | 100% |
+| CPS (chars/s) | 990.53 |
+| Accuracy | 86.09% |
+| Avg Latency (ms) | 4809.76 |
+| P50 (ms) | 4306.95 |
+| P99 (ms) | 13366.27 |
+
+**Detailed report**: [Report](docs/results/server/arm/DXNN-OCR_Server_benchmark_report.md)
+
+<details>
+<summary><b>🔄 Reproduce API Server Benchmark Results</b></summary>
+
+1. **Start the OCR server**:
 
 ```bash
 cd server
-./run_server.sh                    # Default: port 8080, server model
+./run_server.sh
 ```
+
+2. **Install benchmark dependencies**:
+
+```bash
+cd server/benchmark
+pip install -r requirements.txt
+```
+
+3. **Run throughput test**:
+
+```bash
+./quick_start.sh
+
+# Select option 2 to run the throughput test
+```
+
+</details>
 
 ---
 
 ## 🖥️ WebUI Demo
+
+1. **Start the OCR server** (required for the WebUI backend):
+
+```bash
+cd server
+./run_server.sh
+```
+
+2. **Start the WebUI**:
 
 ```bash
 cd server/webui
@@ -261,7 +326,6 @@ pip install -r requirements.txt
 python app.py
 ```
 
-![WebUI 主界面全貌](docs/images/image_web.png)
-
+![WebUI main interface](docs/images/image_web.png)
 
 **Access**: http://localhost:7860

@@ -75,11 +75,9 @@ Test Modes:
     
     # 数据配置
     parser.add_argument("--images", type=str,
-                        help="图片目录")
+                        help="图片目录（默认在此目录下查找 labels.json 作为 ground truth）")
     parser.add_argument("--pdfs", type=str,
                         help="PDF 目录")
-    parser.add_argument("--labels", type=str,
-                        help="Ground truth 标签文件")
     parser.add_argument("--max-samples", type=int,
                         help="最大样本数量")
     
@@ -136,8 +134,6 @@ def merge_config_with_args(config: BenchmarkConfig, args) -> BenchmarkConfig:
         config.data.images_dir = args.images
     if args.pdfs:
         config.data.pdfs_dir = args.pdfs
-    if args.labels:
-        config.data.labels_file = args.labels
     if args.max_samples:
         config.data.max_samples = args.max_samples
     

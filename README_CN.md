@@ -159,7 +159,7 @@ python3 benchmark/run_benchmark.py --model mobile
 
 #### x86 平台
 
-**测试配置**（来源：`docs/result/x86/` 报告）：
+**测试配置**（来源：`docs/results/local/x86/` 报告）：
 - 模型：PP-OCR v5（DEEPX NPU 加速）
 - 数据集规模：20 张图片
 - 成功率：100%（20/20）
@@ -181,15 +181,15 @@ python3 benchmark/run_benchmark.py --model mobile
 **详细报告**：
 | 配置 | Server | Mobile |
 |---|---|---|
-| 单卡 | [Report](docs/result/x86/DXNN-OCR_benchmark_report_singlecard_server.md) | [Report](docs/result/x86/DXNN-OCR_benchmark_report_singlecard_mobile.md) |
-| 双卡 | [Report](docs/result/x86/DXNN-OCR_benchmark_report_dualcards_server.md) | [Report](docs/result/x86/DXNN-OCR_benchmark_report_dualcards_mobile.md) |
-| 三卡 | [Report](docs/result/x86/DXNN-OCR_benchmark_report_threecards_server.md) | [Report](docs/result/x86/DXNN-OCR_benchmark_report_threecards_mobile.md) |
+| 单卡 | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_singlecard_server.md) | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_singlecard_mobile.md) |
+| 双卡 | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_dualcards_server.md) | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_dualcards_mobile.md) |
+| 三卡 | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_threecards_server.md) | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_threecards_mobile.md) |
 
 ---
 
 #### ARM 平台（Rockchip aarch64）
 
-**测试配置**（来源：`docs/result/arm/` 报告）：
+**测试配置**（来源：`docs/results/local/arm/` 报告）：
 - 模型：PP-OCR v5（DEEPX NPU 加速）
 - 数据集规模：20 张图片
 - 成功率：100%（20/20）
@@ -203,8 +203,8 @@ python3 benchmark/run_benchmark.py --model mobile
 **详细报告**：
 | 模型 | 报告 |
 |---|---|
-| Server | [Report](docs/result/arm/DXNN-OCR_benchmark_report_server.md) |
-| Mobile | [Report](docs/result/arm/DXNN-OCR_benchmark_report_mobile.md) |
+| Server | [报告](docs/results/local/arm/DXNN-OCR_benchmark_report_server.md) |
+| Mobile | [报告](docs/results/local/arm/DXNN-OCR_benchmark_report_mobile.md) |
 
 <details>
 <summary><b>🔄 复现基准测试结果</b></summary>
@@ -243,16 +243,81 @@ python3 benchmark/run_benchmark.py --model mobile --runs 60 \
 
 ---
 
-## 🌐 OCR 服务器
+### 📡 API 服务器基准测试
+
+**测试配置**（所有报告一致）：
+- 模式：吞吐量（throughput）
+- 并发数：10
+- 每样本运行次数：20
+
+#### x86 平台
+
+| 配置 | QPS | 成功率 | CPS（字符/秒） | 准确率 | 平均延迟 (ms) | P50 (ms) | P99 (ms) |
+|---|--:|---:|---:|---:|---:|---:|---:|
+| 单卡 | 2.04 | 100% | 984.43 | 86.06% | 4846.49 | 4567.16 | 13053.77 |
+| 双卡 | 3.71 | 100% | 1764.40 | 86.06% | 2660.18 | 2422.49 | 7143.42 |
+| 三卡 | 4.48 | 100% | 2158.43 | 86.06% | 2209.89 | 1956.82 | 6652.21 |
+
+**详细报告**：
+| 配置 | 报告 |
+|---|---|
+| 单卡 | [报告](docs/results/server/x86/DXNN-OCR_Server_benchmark_report_singlecard.md) |
+| 双卡 | [报告](docs/results/server/x86/DXNN-OCR_Server_benchmark_report_dualcards.md) |
+| 三卡 | [报告](docs/results/server/x86/DXNN-OCR_Server_benchmark_report_threecards.md) |
+
+#### ARM 平台（Rockchip aarch64）
+
+| 指标 | 数值 |
+|---|--:|
+| **QPS** | 2.06 |
+| 成功率 | 100% |
+| CPS（字符/秒） | 990.53 |
+| 准确率 | 86.09% |
+| 平均延迟 (ms) | 4809.76 |
+| P50 (ms) | 4306.95 |
+| P99 (ms) | 13366.27 |
+
+**详细报告**：[报告](docs/results/server/arm/DXNN-OCR_Server_benchmark_report.md)
+
+<details>
+<summary><b>🔄 复现 API 服务器基准测试结果</b></summary>
+
+1. **启动 OCR 服务**：
 
 ```bash
 cd server
-./run_server.sh                    # 默认: 端口 8080, server 模型
+./run_server.sh
 ```
+
+2. **安装基准测试依赖**：
+
+```bash
+cd server/benchmark
+pip install -r requirements.txt
+```
+
+3. **运行吞吐量测试**：
+
+```bash
+./quick_start.sh
+
+# 选择选项 2 运行吞吐量测试
+```
+
+</details>
 
 ---
 
 ## 🖥️ WebUI 演示
+
+1. **启动 OCR 服务**（WebUI 后端依赖）：
+
+```bash
+cd server
+./run_server.sh
+```
+
+2. **启动 WebUI**：
 
 ```bash
 cd server/webui
@@ -261,7 +326,6 @@ pip install -r requirements.txt
 python app.py
 ```
 
-![WebUI 主界面全貌](docs/images/image_web.png)
+![WebUI 主界面](docs/images/image_web.png)
 
-
-**访问地址**: http://localhost:7860
+**访问地址**：http://localhost:7860

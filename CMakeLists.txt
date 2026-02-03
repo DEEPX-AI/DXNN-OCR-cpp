@@ -127,16 +127,6 @@ if(DXOCR_BUILD_TESTS)
     endif()
 endif()
 
-# ========================================
-# API Server Benchmark
-# ========================================
-option(BUILD_API_BENCHMARK "Build API server benchmark tool" ON)
-if(BUILD_API_BENCHMARK)
-    message(STATUS "Building API server benchmark tool")
-    add_subdirectory(server/benchmark)
-endif()
-
-
 # Build information
 message(STATUS "========================================")
 message(STATUS "DeepX OCR C++ Project Configuration")
