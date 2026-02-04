@@ -25,13 +25,16 @@ json JsonResponseBuilder::BuildSuccessResponse(
     response["errorCode"] = ErrorCode::SUCCESS;
     response["errorMsg"] = "Success";
     
-    // 构建ocrResults数组
     json ocr_results = json::array();
     for (const auto& result : results) {
-        ocr_results.push_back(ConvertOCRResultToJson(result, vis_image_url));
+        ocr_results.push_back(ConvertOCRResultToJson(result));
     }
     
     response["result"]["ocrResults"] = ocr_results;
+    
+    if (!vis_image_url.empty()) {
+        response["result"]["ocrImage"] = vis_image_url;
+    }
     
     return response;
 }
@@ -73,6 +76,33 @@ json JsonResponseBuilder::ConvertOCRResultToJson(
     }
     
     return item;
+}
+
+json JsonResponseBuilder::BuildPDFSuccessResponse(
+    const json& pages_results,
+    int totalPages,
+    int renderedPages) {
+    
+    json response;
+    response["logId"] = GenerateUUID();
+    response["errorCode"] = ErrorCode::SUCCESS;
+    response["errorMsg"] = "Success";
+    
+    json result;
+    result["totalPages"] = totalPages;
+    result["renderedPages"] = renderedPages;
+    result["pages"] = pages_results;
+    
+    // 如果有页数被截断，添加警告
+    if (renderedPages < totalPages) {
+        result["warning"] = "Only first " + std::to_string(renderedPages) + 
+                           " of " + std::to_string(totalPages) + 
+                           " pages were processed due to page limit";
+    }
+    
+    response["result"] = result;
+    
+    return response;
 }
 
 } // namespace ocr_server

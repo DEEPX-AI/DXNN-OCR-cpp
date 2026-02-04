@@ -172,8 +172,7 @@ float UVDocProcessor::Inference(const cv::Mat& preprocessed, cv::Mat& uvMap) {
             if (output_data[i] > maxv) maxv = output_data[i];
         }
         
-        float mean = sum / total_size;
-        LOG_DEBUG("[Inference] Output: mean={:.4f} min={:.4f} max={:.4f}", mean, minv, maxv);
+        LOG_DEBUG("[Inference] Output: mean={:.4f} min={:.4f} max={:.4f}", sum / total_size, minv, maxv);
     }));
     
     // Output shape should be [1, 2, H, W] or [1, H, W, 2]
@@ -196,10 +195,9 @@ float UVDocProcessor::Inference(const cv::Mat& preprocessed, cv::Mat& uvMap) {
     }
     
     LOG_DEBUG_EXEC(([&]{
-        int out_c = (output_shape[1] == 2) ? output_shape[1] : output_shape[3];
         LOG_DEBUG("[Inference] Output shape: [{} {} {} {}] interpreted as: H={} W={} C={}", 
                   output_shape[0], output_shape[1], output_shape[2], output_shape[3],
-                  out_h, out_w, out_c);
+                  out_h, out_w, (output_shape[1] == 2) ? output_shape[1] : output_shape[3]);
     }));
     
     // Create UV map as [2, H, W]

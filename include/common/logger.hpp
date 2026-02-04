@@ -16,6 +16,7 @@
 #include <spdlog/async.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/rotating_file_sink.h>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -47,6 +48,12 @@ struct LoggerConfig {
 inline std::shared_ptr<spdlog::logger>& GetLogger() {
     static std::shared_ptr<spdlog::logger> logger;
     static std::once_flag flag;
+
+    // If logger already exists in spdlog registry, reuse it and skip default creation
+    if (auto existing = spdlog::get("DeepXOCR")) {
+        logger = existing;
+        return logger;
+    }
     
     std::call_once(flag, []() {
         LoggerConfig config;
@@ -113,10 +120,10 @@ inline std::shared_ptr<spdlog::logger>& GetLogger() {
  * @note Must be called before any LOG_* macros if custom config is needed
  */
 inline void InitLogger(const LoggerConfig& config) {
-    // Shutdown existing logger first
-    spdlog::shutdown();
+    // Drop existing logger if it exists (avoid "already exists" error)
+    spdlog::drop("DeepXOCR");
     
-    // Initialize async thread pool
+    // Initialize async thread pool (safe to call multiple times)
     spdlog::init_thread_pool(config.asyncQueueSize, config.asyncThreadCount);
     
     // Create sinks
@@ -129,6 +136,9 @@ inline void InitLogger(const LoggerConfig& config) {
     
     // Rotating file sink
     if (config.enableFileLog) {
+        // Create log directory if needed
+        std::filesystem::create_directories(config.logDir);
+        
         std::string logPath = config.logDir + "/" + config.logFileName + ".log";
         auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
             logPath,
@@ -139,9 +149,8 @@ inline void InitLogger(const LoggerConfig& config) {
         sinks.push_back(file_sink);
     }
     
-    // Create and register async logger
-    auto& logger = GetLogger();
-    logger = std::make_shared<spdlog::async_logger>(
+    // Create new async logger
+    auto new_logger = std::make_shared<spdlog::async_logger>(
         "DeepXOCR",
         sinks.begin(),
         sinks.end(),
@@ -149,7 +158,22 @@ inline void InitLogger(const LoggerConfig& config) {
         spdlog::async_overflow_policy::block
     );
     
-    spdlog::register_logger(logger);
+    // Set log level based on build type
+#ifndef NDEBUG
+    new_logger->set_level(spdlog::level::debug);
+#else
+    new_logger->set_level(spdlog::level::info);
+#endif
+    
+    // Flush on error or higher
+    new_logger->flush_on(spdlog::level::err);
+    
+    // Register and update the global logger reference
+    spdlog::register_logger(new_logger);
+    
+    // Update the static logger reference in GetLogger()
+    auto& logger = GetLogger();
+    logger = new_logger;
 }
 
 /**

@@ -32,9 +32,8 @@
 ### 1. 克隆与初始化
 ```bash
 # 克隆项目并初始化子模块
-git clone --recursive https://github.com/Chris-godz/ocr_demo.git
-git checkout cppinfer
-cd ocr_demo
+git clone --recursive git@github.com:Chris-godz/DEEPX-OCR.git
+cd DEEPX-OCR
 ```
 
 ### 2. 安装依赖
@@ -108,16 +107,25 @@ OCR/
 │   ├── 📦 clipper2            # 多边形裁剪
 │   ├── 📦 spdlog              # 日志库
 │   ├── 📦 opencv              # 计算机视觉
-│   └── 📦 opencv_contrib      # 扩展模块 (freetype)
-├── 📂 engine/model_files/     # 模型权重
-│   ├── 📂 server/             # 高精度模型
-│   └── 📂 mobile/             # 轻量级模型
+│   ├── 📦 opencv_contrib      # 扩展模块 (freetype)
+│   ├── 📦 crow                # HTTP 框架
+│   ├── 📦 poppler             # PDF 渲染
+│   ├── 📦 cpp-base64          # Base64 编码
+│   └── 📦 googletest          # 单元测试框架
+├── 📂 engine/model_files      # 模型权重
+│   ├── 📂 server/         # 高精度模型
+│   └── 📂 mobile/         # 轻量级模型
+├── 📂 server/                 # HTTP 服务器
+│   ├── 📂 benchmark/          # API 基准测试
+│   ├── 📂 tests/              # 服务器测试
+│   └── 📂 webui/              # Web 界面
 ├── 📂 benchmark/              # 性能基准测试
 ├── 📂 test/                   # 单元与集成测试
 ├── 📂 docs/                   # 文档
 ├── 📜 build.sh                # 编译脚本
 ├── 📜 run.sh                  # 交互式运行脚本
-└── 📜 setup.sh                # 模型设置脚本
+├── 📜 setup.sh                # 模型设置脚本
+└── 📜 set_env.sh              # 环境设置脚本
 ```
 
 ---
@@ -149,7 +157,9 @@ python3 benchmark/run_benchmark.py --model mobile
 
 ### 📊 基准测试报告（汇总）
 
-**测试配置**（来源：`docs/result/` 报告）：
+#### x86 平台
+
+**测试配置**（来源：`docs/results/local/x86/` 报告）：
 - 模型：PP-OCR v5（DEEPX NPU 加速）
 - 数据集规模：20 张图片
 - 成功率：100%（20/20）
@@ -171,9 +181,30 @@ python3 benchmark/run_benchmark.py --model mobile
 **详细报告**：
 | 配置 | Server | Mobile |
 |---|---|---|
-| 单卡 | [Report](docs/result/DXNN-OCR_benchmark_report_singlecard_server.md) | [Report](docs/result/DXNN-OCR_benchmark_report_singlecard_mobile.md) |
-| 双卡 | [Report](docs/result/DXNN-OCR_benchmark_report_dualcards_server.md) | [Report](docs/result/DXNN-OCR_benchmark_report_dualcards_mobile.md) |
-| 三卡 | [Report](docs/result/DXNN-OCR_benchmark_report_threecards_server.md) | [Report](docs/result/DXNN-OCR_benchmark_report_threecards_mobile.md) |
+| 单卡 | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_singlecard_server.md) | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_singlecard_mobile.md) |
+| 双卡 | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_dualcards_server.md) | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_dualcards_mobile.md) |
+| 三卡 | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_threecards_server.md) | [报告](docs/results/local/x86/DXNN-OCR_benchmark_report_threecards_mobile.md) |
+
+---
+
+#### ARM 平台（Rockchip aarch64）
+
+**测试配置**（来源：`docs/results/local/arm/` 报告）：
+- 模型：PP-OCR v5（DEEPX NPU 加速）
+- 数据集规模：20 张图片
+- 成功率：100%（20/20）
+
+**性能汇总**：
+| 模型 | 平均推理耗时 (ms) | 平均 FPS | 平均 CPS（字符/秒） | 平均字符准确率 |
+|---|---:|---:|---:|---:|
+| Server | 133.88 | 7.47 | 245.74 | 96.82% |
+| Mobile | 60.00 | 16.67 | 524.96 | 89.37% |
+
+**详细报告**：
+| 模型 | 报告 |
+|---|---|
+| Server | [报告](docs/results/local/arm/DXNN-OCR_benchmark_report_server.md) |
+| Mobile | [报告](docs/results/local/arm/DXNN-OCR_benchmark_report_mobile.md) |
 
 <details>
 <summary><b>🔄 复现基准测试结果</b></summary>
@@ -210,3 +241,91 @@ python3 benchmark/run_benchmark.py --model mobile --runs 60 \
 
 </details>
 
+---
+
+### 📡 API 服务器基准测试
+
+**测试配置**（所有报告一致）：
+- 模式：吞吐量（throughput）
+- 并发数：10
+- 每样本运行次数：20
+
+#### x86 平台
+
+| 配置 | QPS | 成功率 | CPS（字符/秒） | 准确率 | 平均延迟 (ms) | P50 (ms) | P99 (ms) |
+|---|--:|---:|---:|---:|---:|---:|---:|
+| 单卡 | 2.04 | 100% | 984.43 | 86.06% | 4846.49 | 4567.16 | 13053.77 |
+| 双卡 | 3.71 | 100% | 1764.40 | 86.06% | 2660.18 | 2422.49 | 7143.42 |
+| 三卡 | 4.48 | 100% | 2158.43 | 86.06% | 2209.89 | 1956.82 | 6652.21 |
+
+**详细报告**：
+| 配置 | 报告 |
+|---|---|
+| 单卡 | [报告](docs/results/server/x86/DXNN-OCR_Server_benchmark_report_singlecard.md) |
+| 双卡 | [报告](docs/results/server/x86/DXNN-OCR_Server_benchmark_report_dualcards.md) |
+| 三卡 | [报告](docs/results/server/x86/DXNN-OCR_Server_benchmark_report_threecards.md) |
+
+#### ARM 平台（Rockchip aarch64）
+
+| 指标 | 数值 |
+|---|--:|
+| **QPS** | 2.06 |
+| 成功率 | 100% |
+| CPS（字符/秒） | 990.53 |
+| 准确率 | 86.09% |
+| 平均延迟 (ms) | 4809.76 |
+| P50 (ms) | 4306.95 |
+| P99 (ms) | 13366.27 |
+
+**详细报告**：[报告](docs/results/server/arm/DXNN-OCR_Server_benchmark_report.md)
+
+<details>
+<summary><b>🔄 复现 API 服务器基准测试结果</b></summary>
+
+1. **启动 OCR 服务**：
+
+```bash
+cd server
+./run_server.sh
+```
+
+2. **安装基准测试依赖**：
+
+```bash
+cd server/benchmark
+pip install -r requirements.txt
+```
+
+3. **运行吞吐量测试**：
+
+```bash
+./quick_start.sh
+
+# 选择选项 2 运行吞吐量测试
+```
+
+</details>
+
+---
+
+## 🖥️ WebUI 演示
+
+1. **启动 OCR 服务**（WebUI 后端依赖）：
+
+```bash
+cd server
+./run_server.sh
+```
+
+2. **启动 WebUI**：
+
+```bash
+cd server/webui
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python app.py
+```
+
+![WebUI 主界面](docs/images/image_web.png)
+
+**访问地址**：http://localhost:7860

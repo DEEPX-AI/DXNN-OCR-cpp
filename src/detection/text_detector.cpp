@@ -233,6 +233,14 @@ void TextDetector::setCallback(DetectionCallback callback) {
 }
 
 int TextDetector::runAsync(const cv::Mat& input, int orig_h, int orig_w, int resized_h, int resized_w, int64_t taskId, const cv::Mat& originalImage, double preprocess_time) {
+    // 使用默认检测参数调用重载版本
+    return runAsync(input, orig_h, orig_w, resized_h, resized_w, taskId, originalImage, preprocess_time,
+                    config_.thresh, config_.boxThresh, config_.unclipRatio);
+}
+
+int TextDetector::runAsync(const cv::Mat& input, int orig_h, int orig_w, int resized_h, int resized_w, 
+                           int64_t taskId, const cv::Mat& originalImage, double preprocess_time,
+                           float thresh, float boxThresh, float unclipRatio) {
     auto* engine = selectModel(orig_h, orig_w);
     if (!engine) return -1;
 
@@ -248,8 +256,14 @@ int TextDetector::runAsync(const cv::Mat& input, int orig_h, int orig_w, int res
         taskId,
         originalImage.clone(),  // Deep copy to keep image alive
         input.clone(),          // Deep copy to keep input data alive
-        preprocess_time
+        preprocess_time,
+        thresh,       // Per-task 二值化阈值
+        boxThresh,    // Per-task 检测框置信度阈值
+        unclipRatio   // Per-task 检测扩张系数
     };
+
+    LOG_DEBUG("runAsync: taskId={}, thresh={:.2f}, boxThresh={:.2f}, unclipRatio={:.2f}",
+              taskId, thresh, boxThresh, unclipRatio);
 
     // Use ctx->inputImage.data to ensure we're using the cloned data
     engine->RunAsync(ctx->inputImage.data, ctx);
@@ -285,11 +299,15 @@ int TextDetector::internalCallback(dxrt::TensorPtrs& outputs, void* userArg) {
     cv::Mat pred(out_h, out_w, CV_32FC1);
     std::memcpy(pred.data, output_tensor->data(), out_h * out_w * sizeof(float));
     
-    // Postprocess
+    // Postprocess（使用 per-task 参数）
     auto t_start = std::chrono::high_resolution_clock::now();
-    auto boxes = postprocessor_->process(pred, ctx->orig_h, ctx->orig_w, ctx->resized_h, ctx->resized_w);
+    auto boxes = postprocessor_->process(pred, ctx->orig_h, ctx->orig_w, ctx->resized_h, ctx->resized_w,
+                                          ctx->thresh, ctx->boxThresh, ctx->unclipRatio);
     auto t_end = std::chrono::high_resolution_clock::now();
     double postprocess_time = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+    
+    LOG_DEBUG("Detection postprocess: taskId={}, thresh={:.2f}, boxThresh={:.2f}, unclipRatio={:.2f}, boxes={}",
+              ctx->taskId, ctx->thresh, ctx->boxThresh, ctx->unclipRatio, boxes.size());
 
     // Calculate inference time (approximate)
     double inference_time = 0.0; 

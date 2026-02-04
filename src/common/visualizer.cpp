@@ -73,8 +73,9 @@ cv::Mat Visualizer::drawOCRResults(const cv::Mat& image,
             cv::Point text_pos(static_cast<int>(box.points[0].x), 
                              static_cast<int>(box.points[0].y) - 5);
             
-            // 使用FreeType绘制中文文本
-            std::string font_path = "engine/fonts/simfang.ttf";
+            // 使用FreeType绘制中文文本（使用绝对路径）
+            std::string projectRoot = PROJECT_ROOT_DIR;
+            std::string font_path = projectRoot + "/engine/fonts/simfang.ttf";
             putTextUTF8(vis, label, text_pos, font_path, 20, cv::Scalar(0, 255, 0));
         }
     }

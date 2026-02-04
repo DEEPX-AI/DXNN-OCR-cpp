@@ -261,8 +261,8 @@ void TextRecognizer::PrintModelUsageStats() const {
     }
     
     LOG_DEBUG_EXEC(([&]{
-        for (const auto& [ratio, count] : model_usage_) {
-            LOG_DEBUG("  ratio_{}: {} times ({:.1f}%)", ratio, count, (count * 100.0f) / total);
+        for ([[maybe_unused]] const auto& pair : model_usage_) {
+            LOG_DEBUG("  ratio_{}: {} times ({:.1f}%)", pair.first, pair.second, (pair.second * 100.0f) / total);
         }
         LOG_DEBUG("  Total: {} recognitions", total);
     }));

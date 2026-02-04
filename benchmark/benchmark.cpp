@@ -180,31 +180,40 @@ int main(int argc, char** argv) {
     auto startTime = std::chrono::high_resolution_clock::now();
     
     // 消费者线程：接收结果
+    std::atomic<int> failedCount{0};  // 记录失败的任务数
     std::thread consumer([&]() {
         while (completedCount.load() < totalTasks) {
             std::vector<ocr::PipelineOCRResult> results;
             cv::Mat processedImage;
             int64_t id;
-            if (pipeline.getResult(results, id, &processedImage)) {
+            bool success = true;
+            if (pipeline.getResult(results, id, &processedImage, &success)) {
                 {
                     std::lock_guard<std::mutex> lock(resultsMutex);
                     // 只保存最后一次运行的结果
                     int imageIdx = id % images.size();
                     int runIdx = id / images.size();
                     
-                    LOG_INFO("Got result: id={}, imageIdx={}, runIdx={}, results={}", 
-                             id, imageIdx, runIdx, results.size());
-                    
-                    if (runIdx == runsPerImage - 1) {
-                        allResults[imageIdx] = std::move(results);
-                        if (!processedImage.empty()) {
-                            processedImages[imageIdx] = processedImage.clone();
+                    if (!success) {
+                        // 任务处理失败（检测引擎异常等）
+                        LOG_WARN("Task failed: id={}, imageIdx={}, runIdx={}", 
+                                 id, imageIdx, runIdx);
+                        failedCount.fetch_add(1);
+                    } else {
+                        LOG_INFO("Got result: id={}, imageIdx={}, runIdx={}, results={}", 
+                                 id, imageIdx, runIdx, results.size());
+                        
+                        if (runIdx == runsPerImage - 1) {
+                            allResults[imageIdx] = std::move(results);
+                            if (!processedImage.empty()) {
+                                processedImages[imageIdx] = processedImage.clone();
+                            }
                         }
                     }
                 }
                 completedCount.fetch_add(1);
                 if (completedCount.load() % 10 == 0) {
-                    LOG_INFO("Processed {}/{}", completedCount.load(), totalTasks);
+                    LOG_INFO("Processed {}/{} (failed: {})", completedCount.load(), totalTasks, failedCount.load());
                 }
             } else {
                 std::this_thread::yield();
@@ -233,6 +242,10 @@ int main(int argc, char** argv) {
     
     LOG_INFO("\n========== Benchmark Results ==========");
     LOG_INFO("Total Tasks: {} (Images: {}, Repeats: {})", totalTasks, images.size(), runsPerImage);
+    int failed = failedCount.load();
+    if (failed > 0) {
+        LOG_WARN("Failed Tasks: {} ({:.1f}%)", failed, failed * 100.0 / totalTasks);
+    }
     LOG_INFO("Total Time: {:.2f} ms", totalTimeMs);
     LOG_INFO("Average Time: {:.2f} ms/image", avgTimePerImage);
     LOG_INFO("FPS: {:.2f}", fps);

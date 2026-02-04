@@ -48,6 +48,19 @@ public:
         const ocr::PipelineOCRResult& result,
         const std::string& vis_image_url = ""
     );
+    
+    /**
+     * @brief 构建 PDF OCR 成功响应
+     * @param pages_results 每页的 OCR 结果数组
+     * @param totalPages PDF 总页数
+     * @param renderedPages 实际渲染的页数
+     * @return JSON 响应对象
+     */
+    static json BuildPDFSuccessResponse(
+        const json& pages_results,
+        int totalPages,
+        int renderedPages
+    );
 };
 
 /**

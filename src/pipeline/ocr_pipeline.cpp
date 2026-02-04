@@ -164,21 +164,37 @@ bool OCRPipeline::initialize() {
         // Dispatch heavy work (sorting, queue push) to stageExecutor_
         // This avoids blocking DXRT internal callback thread
         stageExecutor_->dispatch([this, boxes = std::move(boxes), taskId, image]() mutable {
-            // Sort Boxes
-            std::sort(boxes.begin(), boxes.end(), [](const DeepXOCR::TextBox& a, const DeepXOCR::TextBox& b) {
-                if (std::abs(a.points[0].y - b.points[0].y) < 1.0f) {
-                    return a.points[0].x < b.points[0].x;
+            // 从 map 中获取并移除任务配置
+            OCRTaskConfig taskConfig;
+            {
+                std::lock_guard<std::mutex> lock(pendingTaskConfigsMutex_);
+                auto it = pendingTaskConfigs_.find(taskId);
+                if (it != pendingTaskConfigs_.end()) {
+                    taskConfig = it->second;
+                    pendingTaskConfigs_.erase(it);
+                } else {
+                    LOG_WARN("Task config not found for taskId={}, using default", taskId);
                 }
-                return a.points[0].y < b.points[0].y;
-            });
+            }
             
-            for (size_t i = 0; i < boxes.size() - 1; ++i) {
-                for (int j = i; j >= 0; --j) {
-                    if (std::abs(boxes[j + 1].points[0].y - boxes[j].points[0].y) < 10.0f &&
-                        boxes[j + 1].points[0].x < boxes[j].points[0].x) {
-                        std::swap(boxes[j], boxes[j + 1]);
-                    } else {
-                        break;
+            // Sort Boxes (only if there are boxes to sort)
+            if (boxes.size() > 1) {
+                std::sort(boxes.begin(), boxes.end(), [](const DeepXOCR::TextBox& a, const DeepXOCR::TextBox& b) {
+                    if (std::abs(a.points[0].y - b.points[0].y) < 1.0f) {
+                        return a.points[0].x < b.points[0].x;
+                    }
+                    return a.points[0].y < b.points[0].y;
+                });
+                
+                // Bubble sort refinement for boxes on similar y-level
+                for (size_t i = 0; i < boxes.size() - 1; ++i) {
+                    for (int j = static_cast<int>(i); j >= 0; --j) {
+                        if (std::abs(boxes[j + 1].points[0].y - boxes[j].points[0].y) < 10.0f &&
+                            boxes[j + 1].points[0].x < boxes[j].points[0].x) {
+                            std::swap(boxes[j], boxes[j + 1]);
+                        } else {
+                            break;
+                        }
                     }
                 }
             }
@@ -187,7 +203,7 @@ bool OCRPipeline::initialize() {
             // Check both running_ and recQueue_ existence atomically
             if (running_ && recQueue_) {
                 size_t boxCount = boxes.size();
-                RecognitionTask task{image, std::move(boxes), taskId};
+                RecognitionTask task{image, std::move(boxes), taskId, taskConfig};
                 // Use try_push with longer timeout to avoid blocking callback threads
                 while (running_ && recQueue_ && !recQueue_->try_push(std::move(task), std::chrono::milliseconds(500))) {
                     LOG_WARN("Recognition queue full, waiting... id={}", taskId);
@@ -391,16 +407,24 @@ void OCRPipeline::stop() {
 }
 
 bool OCRPipeline::pushTask(const cv::Mat& image, int64_t id) {
+    // 使用默认配置调用重载版本
+    return pushTask(image, id, OCRTaskConfig::Default());
+}
+
+bool OCRPipeline::pushTask(const cv::Mat& image, int64_t id, const OCRTaskConfig& config) {
     if (!running_ || !detQueue_) return false;
     // Use try_push to avoid blocking - return false if queue is full
-    if (!detQueue_->try_push({image, id}, std::chrono::milliseconds(100))) {
+    if (!detQueue_->try_push({image, id, config}, std::chrono::milliseconds(100))) {
         return false;  // Queue full, caller should retry
     }
-    LOG_INFO("Task pushed to detection queue, id={}", id);
+    LOG_INFO("Task pushed to detection queue, id={}, config: docOri={}, docUnwarp={}, textlineOri={}, detThresh={:.2f}, boxThresh={:.2f}, unclipRatio={:.2f}, recThresh={:.2f}",
+             id, config.useDocOrientationClassify, config.useDocUnwarping, 
+             config.useTextlineOrientation, config.textDetThresh, 
+             config.textDetBoxThresh, config.textDetUnclipRatio, config.textRecScoreThresh);
     return true;
 }
 
-bool OCRPipeline::getResult(std::vector<PipelineOCRResult>& results, int64_t& id, cv::Mat* processedImage) {
+bool OCRPipeline::getResult(std::vector<PipelineOCRResult>& results, int64_t& id, cv::Mat* processedImage, bool* success) {
     if (!running_ || !outQueue_) return false;
     
     OutputTask task;
@@ -412,6 +436,9 @@ bool OCRPipeline::getResult(std::vector<PipelineOCRResult>& results, int64_t& id
     id = task.id;
     if (processedImage) {
         *processedImage = task.processedImage;
+    }
+    if (success) {
+        *success = task.success;
     }
     return true;
 }
@@ -427,13 +454,29 @@ void OCRPipeline::detectionLoop() {
         if (!running_) break;
         if (task.image.empty()) continue;
 
-        // 1. Doc Preprocessing (Doc Ori + UVDoc)
+        // 存储任务配置到 map 中（用于在检测回调中传递给识别阶段）
+        {
+            std::lock_guard<std::mutex> lock(pendingTaskConfigsMutex_);
+            pendingTaskConfigs_[task.id] = task.config;
+        }
+
+        // 1. Doc Preprocessing (Doc Ori + UVDoc) - 根据 task.config 控制
         auto t1 = std::chrono::high_resolution_clock::now();
         cv::Mat processedImage = task.image;
-        if (config_.useDocPreprocessing && docPreprocessing_) {
-            auto preprocResult = docPreprocessing_->Process(task.image);
+        
+        // 使用 task.config 控制是否进行文档预处理
+        bool useDocPreproc = (task.config.useDocOrientationClassify || task.config.useDocUnwarping);
+        if (useDocPreproc && docPreprocessing_) {
+            // 动态设置文档预处理配置
+            DocumentPreprocessingConfig dynamicConfig;
+            dynamicConfig.useOrientation = task.config.useDocOrientationClassify;
+            dynamicConfig.useUnwarping = task.config.useDocUnwarping;
+            
+            auto preprocResult = docPreprocessing_->Process(task.image, dynamicConfig);
             if (preprocResult.success && !preprocResult.processedImage.empty()) {
                 processedImage = preprocResult.processedImage;
+                LOG_DEBUG("Doc preprocessing applied: ori={}, unwarp={}", 
+                          task.config.useDocOrientationClassify, task.config.useDocUnwarping);
             }
         }
 
@@ -448,8 +491,36 @@ void OCRPipeline::detectionLoop() {
         auto t2 = std::chrono::high_resolution_clock::now();
         double preprocess_time = std::chrono::duration<double, std::milli>(t2 - t1).count();
 
-        // 3. Submit Async Inference (pass correct resized_h, resized_w for coordinate mapping)
-        detector_->runAsync(preprocessed, h, w, resized_h, resized_w, task.id, processedImage, preprocess_time);
+        // 3. Submit Async Inference（使用 task.config 中的检测参数）
+        int ret = detector_->runAsync(preprocessed, h, w, resized_h, resized_w, task.id, processedImage, preprocess_time,
+                            task.config.textDetThresh, task.config.textDetBoxThresh, task.config.textDetUnclipRatio);
+        if (ret < 0) {
+            LOG_ERROR("Failed to submit async inference, id={} ret={}", task.id, ret);
+            
+            // 删除刚插入的配置，避免内存泄漏
+            {
+                std::lock_guard<std::mutex> lock(pendingTaskConfigsMutex_);
+                pendingTaskConfigs_.erase(task.id);
+            }
+            
+            // 推送失败结果到输出队列，确保调用者能收到响应（避免无限等待）
+            if (outQueue_ && running_) {
+                OutputTask errorResult;
+                errorResult.results = std::vector<PipelineOCRResult>{};     // 空结果
+                errorResult.processedImage = processedImage;
+                errorResult.id = task.id;
+                errorResult.config = task.config;
+                errorResult.success = false;  // 标记为失败（检测引擎异常）
+                
+                if (!outQueue_->try_push(std::move(errorResult), std::chrono::milliseconds(100))) {
+                    LOG_WARN("Failed to push error result to output queue, id={}", task.id);
+                } else {
+                    LOG_INFO("Pushed error result (success=false) for failed detection, id={}", task.id);
+                }
+            }
+            
+            continue;
+        }
     }
 }
 
@@ -466,8 +537,8 @@ void OCRPipeline::recognitionLoop() {
         if (task.boxes.empty()) {
             // No boxes detected, push empty result
             if (outQueue_) {
-                outQueue_->push({std::vector<PipelineOCRResult>{}, task.image, task.id});
-                LOG_INFO("Pushed empty result to output queue, id={}", task.id);
+                outQueue_->push({std::vector<PipelineOCRResult>{}, task.image, task.id, task.config, true});
+                LOG_INFO("Pushed empty result (no text detected) to output queue, id={}", task.id);
             }
             continue;
         }
@@ -614,14 +685,29 @@ void OCRPipeline::onRecognitionComplete(const std::string& text, float confidenc
 }
 
 void OCRPipeline::finalizeRecognitionTask(std::shared_ptr<RecognitionTaskContext> taskCtx) {
-    // Collect valid results (non-empty text)
+    // 获取识别置信度阈值
+    float recScoreThresh = taskCtx->config.textRecScoreThresh;
+    
+    // Collect valid results (non-empty text and confidence >= threshold)
     std::vector<PipelineOCRResult> validResults;
     validResults.reserve(taskCtx->results.size());
     
+    size_t filteredByThresh = 0;
     for (const auto& res : taskCtx->results) {
         if (!res.text.empty()) {
-            validResults.push_back(res);
+            // 使用 textRecScoreThresh 过滤低置信度的结果
+            if (res.confidence >= recScoreThresh) {
+                validResults.push_back(res);
+            } else {
+                ++filteredByThresh;
+                LOG_DEBUG("Filtered result by threshold: conf={:.3f} < thresh={:.3f}, text='{}'",
+                          res.confidence, recScoreThresh, res.text.substr(0, 20));
+            }
         }
+    }
+    
+    if (filteredByThresh > 0) {
+        LOG_INFO("Filtered {} results by textRecScoreThresh={:.2f}", filteredByThresh, recScoreThresh);
     }
 
     // Sort results
@@ -633,9 +719,10 @@ void OCRPipeline::finalizeRecognitionTask(std::shared_ptr<RecognitionTaskContext
     }
 
     // Push to output queue (use try_push to avoid deadlock)
+    // 传递 task config 到 output
     if (outQueue_ && running_) {
         size_t resultCount = validResults.size();  // Save before move
-        while (running_ && !outQueue_->try_push({std::move(validResults), taskCtx->processedImage, taskCtx->taskId}, 
+        while (running_ && !outQueue_->try_push({std::move(validResults), taskCtx->processedImage, taskCtx->taskId, taskCtx->config, true}, 
                                                  std::chrono::milliseconds(500))) {
             LOG_WARN("Output queue full, waiting... id={}", taskCtx->taskId);
         }

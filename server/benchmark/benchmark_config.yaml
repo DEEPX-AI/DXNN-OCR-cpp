@@ -1,0 +1,66 @@
+# OCR API Server Benchmark Framework v2.0 配置示例
+
+# ==================== 服务器配置 ====================
+server:
+  url: http://localhost:8080/ocr
+  token: test_token
+  timeout: 60
+  verify_ssl: false
+
+# ==================== OCR 参数配置 ====================
+ocr_params:
+  fileType: 1
+  useDocOrientationClassify: false
+  useDocUnwarping: false
+  useTextlineOrientation: false
+  textDetThresh: 0.3
+  textDetBoxThresh: 0.6
+  textDetUnclipRatio: 1.5
+  textRecScoreThresh: 0.0
+  visualize: false
+  
+  # PDF 专用参数
+  pdfDpi: 150
+  pdfMaxPages: 100
+
+# ==================== 测试场景配置 ====================
+scenario:
+  name: throughput_test
+  mode: throughput  # latency, throughput, stress, stability, capacity
+  concurrency: 10
+  duration_seconds: 0  # 0 表示运行完所有样本
+  runs_per_sample: 1
+  warmup_requests: 5
+  
+  # 压力测试专用
+  ramp_up_seconds: 0
+  
+  # 容量规划/压力测试专用
+  max_concurrency: 100
+  concurrency_step: 5
+
+# ==================== 数据配置 ====================
+data:
+  images_dir: ../../images
+  pdfs_dir: null
+  labels_file: null  # 默认使用 images_dir/labels.json
+  file_pattern: "*.*"
+  max_samples: 0  # 0 表示使用所有样本
+  shuffle: false
+
+# ==================== 监控配置 ====================
+monitor:
+  enable_system_monitor: true
+  monitor_interval: 1.0  # 秒
+
+# ==================== 报告配置 ====================
+report:
+  output_dir: results
+  formats:
+    - markdown
+    - json
+    - html
+  save_timeline: true
+  save_raw_results: false
+  generate_charts: true
+
